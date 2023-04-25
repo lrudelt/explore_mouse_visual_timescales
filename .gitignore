@@ -1,0 +1,26 @@
+data/*
+data/intrinsic_timescale/*
+data/branching-network/*
+data/bn_with_correlated_input/*
+*~
+*.nwb
+paper_plots/img/*
+paper_plots/data/allen_neuron_data/*
+paper_plots/data/allen_raw_data/*
+paper_plots/data/stats/*
+paper_plots/code/dirs.yaml
+
+branching_network/fig/*
+*.pdf
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+.vscode
+*.pkl
+*.ipynb_checkpoints
+log
+parameters.tsv
+*.zarr/*
+*.zarr

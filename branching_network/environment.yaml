@@ -1,0 +1,42 @@
+# to create the environment
+# >>> conda env create --file environment.yml
+# to register the kernel for jupyter lab:
+# >>> source activate its_bn
+# >>> python -m ipykernel install --user --name its_bn
+
+name: its_bn
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - dask
+  - dask-jobqueue
+  - tqdm
+  - enlighten
+  - numpy
+  - scipy
+  - h5py
+  - zarr
+  - xarray=2023.1.0
+  - pandas=1.5.3
+  - pytables
+  - matplotlib
+  - seaborn=0.11.2 # pauls split violins only work with version < 0.12
+  - palettable
+  - networkx
+  - cython
+  - numba=0.56.4 # they plan to depricate untyped lists, which we use.
+  - ipywidgets
+  - ipython
+  - jupyter
+  - jupyterlab
+  - pymc # add version
+  - arviz # add version
+  - humanize
+  - pip
+  - pip:
+    # bug in pyfftw _conda_ package: https://github.com/pyFFTW/pyFFTW/issues/294
+    - pyfftw
+    - ipy_dict_hierarchy
+    - python-benedict
+    - git+https://github.com/pSpitzner/bitsandbobs
