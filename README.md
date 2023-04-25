@@ -59,3 +59,7 @@ All panels are produced by `branching_network/notebooks/bn_plot_measures_vs_a.ip
 and `branching_network/notebooks/bn_raster_examples.ipynb`.
 
 ### Figure 4
+
+### Figure S7
+Illustrates the autocorrelation fits and the new dataformat.
+`experiment_analysis/notebooks/single_unit_autocorrelation.ipynb`
