@@ -1,4 +1,4 @@
-# Code repository: _Signatures of hierarchical temporal processing in the mouse visual system_
+# _Code repository:_ Signatures of hierarchical temporal processing in the mouse visual system
 
 
 This repository contains the analysis pipeline and plotting routines for our preprint
@@ -12,54 +12,64 @@ This repository contains the analysis pipeline and plotting routines for our pre
 }
 ```
 
-## Data
+## Refactoring Note
 
-(work in progress)
+We are currently clreaining this repository.
+
+This requires converting all scripts to a new data backend, using our prepared spiking data in a minimal format (to avoid AllenSDK dependencies to just reproduce the paper).
+
+The current state is as follows:
+
+- [`branching_network/`](branching_network) BN simulation results are independent, self-contained and up to date.
+- [`experiment_analysis/`](experiment_analysis) contains updated scripts.
+- [`experiment_legacy/`](experiment_legacy) contains the old scripts, which are not compatible with the new data format, and instead the AllenSDK.
+- we provide the new data format and the intermediate analysis results in the old format (for legacy plot scripts), in the data repository on [gin.g-node.org](https://gin.g-node.org/pspitzner/mouse_visual_timescales).
+
+
+## Data
 
 We analyse data of mouse visual cortex from the [Allen Brain Atlas](https://atlas.brain-map.org/).
 The data is accessed using the [Allen SDK](http://alleninstitute.github.io/AllenSDK/install.html).
-For convenience, we (will) provide a copy of the preprocessed data that is compatible with
+For convenience, we provide a copy of the preprocessed data that is compatible with
 our analysis pipeline on [gin.g-node.org](https://gin.g-node.org/pspitzner/mouse_visual_timescales).
 Loading these files requires only minimal dependencies and should be easy to setup using
 our `environment.yaml`.
+All use of these data must comply with the orignal sources' [Terms of Use](https://alleninstitute.org/terms-of-use/).
+
+## Plotting
+
+- [ ] Figure 1, legacy code
+  - `allen_single_units.py`
+  - `allen_single_units_stimulus.py`
+
+- [ ] Figure 2, legacy code
+  - require processed data using old pipeline, or the results from `stats.zip`
+  - `allen_grouped.py`
+  - `allen_hierarchy.py`
+  - `allen_hierarchical_bayes_model_comparison.py` creates hdf5 files, to plot with
+  - `allen_bayes.ipynb`
 
 
+- [x] Figure 3, up to date
+  - `branching_network/notebooks/bn_plot_measures_vs_a.ipynb`
+  - `branching_network/notebooks/bn_raster_examples.ipynb`
+
+- [ ] Figure 4, legacy code
+  - `measures_vs_allen_metrics_scatter.py`
+
+- [x] Figure S7, up to date
+  - Illustrates the autocorrelation fits and the new dataformat.
+  - `experiment_analysis/notebooks/single_unit_autocorrelation.ipynb`
+
+----
+
+Under construction, not yet up to date:
 
 ## Analysis
 
-(work in progress)
-
-### Planned:
 All analysis run on our preprocessed data and all requirements can be installed
 by creating a new conda environment
 
 ```
 conda env create -f environment.yaml --name mouse_visual_timescales
 ```
-
-### Current state:
-Most of the analysis scripts have not been updated to the new data format.
-Plotting works, however, using intermediate results saved in `todo@LR`
-
-## Branching Network
-
-Simulations of the branching network are independent from the experimental anlysis.
-Everything is contained in `branching_network`, along with a separate environment file
-for dependencies.
-
-
-## Plotting
-
-### Figure 1
-
-### Figure 2
-
-### Figure 3
-All panels are produced by `branching_network/notebooks/bn_plot_measures_vs_a.ipynb`
-and `branching_network/notebooks/bn_raster_examples.ipynb`.
-
-### Figure 4
-
-### Figure S7
-Illustrates the autocorrelation fits and the new dataformat.
-`experiment_analysis/notebooks/single_unit_autocorrelation.ipynb`

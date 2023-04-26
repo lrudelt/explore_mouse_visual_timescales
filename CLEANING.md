@@ -34,6 +34,7 @@
         - `dat`
             - `allen` |
             - `raw` | our hdf5 prepared from allen sdk, currently "share/allen_visual_coding/...."
+                - ps 23-04-26: would suggest `spikes`, since we already prepared them to fit our format (and, thus, they are not "raw")
             - `prepped` | `stats` ~ analysis results before plotting them
         - `notebooks`
             - create_figure_xyz
