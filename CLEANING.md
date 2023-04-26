@@ -1,5 +1,10 @@
 # information timescales
 
+## Overall todos 23-04-26
+- [ ] update mr estimator
+- [ ] update hd estimator
+- [ ] repo files
+
 ## cleaning plan 23-03-09
 
 - one environment for preprocessing allen data to hdf5
