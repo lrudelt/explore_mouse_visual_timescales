@@ -10,6 +10,7 @@ paper_plots/data/allen_raw_data/*
 paper_plots/data/stats/*
 paper_plots/code/dirs.yaml
 
+dat
 branching_network/fig/*
 *.pdf
 
@@ -23,4 +24,5 @@ __pycache__/
 log
 parameters.tsv
 *.zarr/*
+*.zarr.zip
 *.zarr
