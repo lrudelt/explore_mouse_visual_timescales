@@ -1,0 +1,6 @@
+bin_size : 0.005
+dtunit : s
+tmin : 0.030
+tmax : 2.5
+output_dir : '/scratch03.local/dgmarx/analysis/allen_fc_single_blocks/mre_analysis/output'
+csv_output_dir : '/scratch03.local/dgmarx/analysis/allen_fc_single_blocks/mre_analysis/csv_output_30_2500'

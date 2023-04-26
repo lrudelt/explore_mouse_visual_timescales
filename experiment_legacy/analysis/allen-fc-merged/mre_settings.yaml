@@ -1,0 +1,4 @@
+bin_size : 0.005
+dtunit : s
+analysis : "allen_fc"
+csv_output_path : '/scratch03.local/lucas/analysis/allen_fc_merged/mre_analysis_paper/'

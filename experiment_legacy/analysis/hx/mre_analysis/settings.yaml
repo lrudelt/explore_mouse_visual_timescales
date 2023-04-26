@@ -1,0 +1,6 @@
+bin_size : 0.005
+dtunit : s
+tmin : 0.03
+tmax : 2.5
+output_dir : '/scratch03.local/dgmarx/analysis/hx_stdp_new2_static/mre_analysis_30/output'
+csv_output_dir : '/scratch03.local/dgmarx/analysis/hx_stdp_new2_static/mre_analysis_30/csv_output'

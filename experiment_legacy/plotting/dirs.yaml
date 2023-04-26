@@ -1,0 +1,3 @@
+allen_data_dir : '../data/allen_raw_data'
+neuron_data_dir : '../data/allen_neuron_data'
+stats_dir : '../data/stats'

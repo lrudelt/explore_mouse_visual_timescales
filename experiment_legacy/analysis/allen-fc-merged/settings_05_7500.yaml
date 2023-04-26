@@ -1,0 +1,6 @@
+bin_size : 0.005
+dtunit : s
+tmin : 0.005
+tmax : 7.5
+output_dir : '/scratch03.local/lucas/analysis/allen_fc_merged/mre_analysis_paper/output'
+csv_output_dir : '/scratch03.local/lucas/analysis/allen_fc_merged/mre_analysis_paper/csv_output_05_7500'
