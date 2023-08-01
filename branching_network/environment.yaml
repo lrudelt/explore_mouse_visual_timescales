@@ -1,14 +1,14 @@
 # to create the environment
-# >>> conda env create --file environment.yml
+# >>> conda env create --file environment.yaml
 # to register the kernel for jupyter lab:
-# >>> source activate its_bn
-# >>> python -m ipykernel install --user --name its_bn
+# >>> source activate its
+# >>> python -m ipykernel install --user --name its
 
-name: its_bn
+name: its
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.11
   - dask
   - dask-jobqueue
   - tqdm
@@ -24,8 +24,8 @@ dependencies:
   - seaborn=0.11.2 # pauls split violins only work with version < 0.12
   - palettable
   - networkx
-  - cython
-  - numba=0.56.4 # they plan to depricate untyped lists, which we use.
+  # - numba=0.56.4 # they plan to depricate untyped lists, which we use.
+  - numba=0.57.1 # they plan to depricate untyped lists, which we use.
   - ipywidgets
   - ipython
   - jupyter
@@ -33,10 +33,11 @@ dependencies:
   - pymc # add version
   - arviz # add version
   - humanize
+  - pyfftw=0.13 # there might be a bug in the pyfftw _conda_ package: https://github.com/pyFFTW/pyFFTW/issues/294, but we do not use the fft in the main code, anymore. thus, minor issue.
   - pip
   - pip:
-    # bug in pyfftw _conda_ package: https://github.com/pyFFTW/pyFFTW/issues/294
-    - pyfftw
-    - ipy_dict_hierarchy
     - python-benedict
+    - git+https://github.com/Priesemann-Group/mrestimator.git@v0.1.9
+    - git+https://github.com/Priesemann-Group/hdestimator.git@python_wrapper_numba
     - git+https://github.com/pSpitzner/bitsandbobs
+    - ipy_dict_hierarchy # relies readline, might fail on windows

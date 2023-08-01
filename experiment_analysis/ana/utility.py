@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-04-25 16:46:27
+# @Last Modified: 2023-08-01 12:32:00
 # ------------------------------------------------------------------------------ #
 
 
@@ -15,6 +15,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 log.setLevel("DEBUG")
 
+import os
 import re
 import glob
 import h5py
@@ -49,8 +50,39 @@ def all_unit_metadata(
     Returns a pandas dataframe holding the overall index,
     an overview of sessions and units.
 
-    Index is a unit, columns are sessions, stimuli, blocks, needed file path,
-    and various tests and metadata.
+    Uses `load_session` on every found hdf5 file.
+
+    # Parameters:
+    dir (str): directory holding the hdf5 files
+    reload (bool): if True, reload the metadata from disk, otherwise use the module cache
+
+    # Columns:
+    unit_id : int
+        unique unit id, e.g. 951013153. unique per block, might reoccur in different blocks
+    session : int
+        session number, e.g. 787025148
+    num_spikes : int
+        note that this is the max number of spikes any unit had in that block,
+        because spiking data is nan-padded (and we cannot load the actual number
+        for a single unit from meta-data alone).
+    stimulus : str/Object
+        stimulus name, e.g. "natural_movie_one_more_repeats"
+    block : str/O
+        block description, e.g. "3.0" or "null"
+    ecephys_structure_acronym : str/O
+        area, e.g. "VISam"
+    invalid_spiketimes_check : str/O
+        overall status. we update this later, when certain checks fail. default: "SUCCESS"
+    recording_length : float
+        in seconds
+    firing_rate : float
+        in spikes per second
+    filepath : str
+        path to the hdf5 file holding the session
+
+    # Notes:
+    - to get the `spiketimes` column, call `load_spikes(meta_df)`, best after filtering,
+        to avoid loading data you don't need.
     """
 
     # lets be smart about this and not load this from disk every times
@@ -59,8 +91,10 @@ def all_unit_metadata(
         log.debug("Using cached metadata")
         return _meta_df.copy()
 
+    dir = os.path.abspath(os.path.expanduser(dir))
     files = glob.glob(dir + "/**/*.h5", recursive=True)
     log.debug(f"Found {len(files)} hdf5 files in {dir}")
+    assert len(files) > 0, f"Found no hdf5 files in {dir}"
 
     meta_df = []
 
@@ -78,16 +112,21 @@ def load_session(
     filepath, meta_only=False, pad_spikes_to=None, filter=None, as_dict=False
 ):
     """
-    Load a single session as dictionary.
+    Load a single session as pandas dataframe (or a dictionary)
     optionally, only get metadata.
 
 
     # Parameters
     filepath (str): path to hdf5 file holding the session,
         best get this from all_unit_metadata
+    filter : dict or None (default)
+        only load keys that are in the given filters.
+        e.g. `filter=dict(stimulus=["stim_1"], block=["block_1", "block_2"])`
     meta_only (bool): if True, only load metadata, not spiketimes
+    as_dict (bool): if True, return a dictionary instead of a dataframe.
 
     # Returns
+    meta_df (pandas.DataFrame): dataframe holding the metadata, OR:
     session_dict (dict): nested dictionary with the following structure:
         session_dict[session][stimulus][block][kind]
         kind is either "meta" (holding a pandas dataframe)
@@ -105,6 +144,8 @@ def load_session(
         keys = list(f.keys())
 
         # we want the number of spikes in the metadata, but they are in the spiketimes
+        # note that num_spikes is the max number of spikes any unit had in that block
+        # due to the nan-padding
         for key in keys:
             if key.endswith("_spiketimes"):
                 num_spikes[key.replace("_spiketimes", "")] = f[key].shape[1]
@@ -257,8 +298,11 @@ def load_spikes(meta_df):
 
     # Returns
     df : pd.DataFrame
-        same rows as meta_df, but with an additional column
-        `spiketimes` containing the spiketimes as xr.DataArray
+        - same rows as meta_df, but with an additional column (object)
+            `spiketimes` containing the spiketimes as xr.DataArray
+        - the contained xarray.DataArray have dimensions:
+            (session, stimulus, block, spiketimes)
+
 
     """
 
@@ -311,7 +355,13 @@ def load_spikes(meta_df):
                     if not index in res_df.index:
                         continue
 
-                    res_df.loc[index, "spiketimes"] = da.sel(unit_id=unit)
+                    # assign data to df, and update the num_spikes column
+                    arr = da.sel(unit_id=unit)
+                    if len(arr.squeeze().shape) != 1:
+                        log.warning("spiketimes should have one variable dimension")
+                    res_df.loc[index, "spiketimes"] = arr
+                    res_df.loc[index, "num_spikes"] = np.isfinite(arr).sum().item()
+
                     num_rows += 1
 
     if not num_rows == len(res_df):
@@ -396,6 +446,8 @@ def default_filter(meta_df, target_length=1080, transient_length=360, trim=True)
     """
     Apply our default set of quality controls to the metadata frame.
 
+    `meta_df` is not modified in place.
+
     # Parameters
     meta_df: the metadata dataframe
     target_length: the target length for recording duration, in seconds
@@ -405,7 +457,7 @@ def default_filter(meta_df, target_length=1080, transient_length=360, trim=True)
     trim : if True (default)
         remove rows that failed the quality checks.
         to get the full-length dataframe, set to False, and
-        this will update the `invalid_spiketimes_check` column. The you can query like:
+        this will update the `invalid_spiketimes_check` column. Then you can query like:
         `meta_df.query("invalid_spiketimes_check == 'SUCCESS'")`
 
     # Returns
@@ -456,10 +508,10 @@ def default_filter(meta_df, target_length=1080, transient_length=360, trim=True)
     #         meta_df.loc[
     #             (unit_id, stimulus), "invalid_spiketimes_check"
     #         ] = "ERR_STATIONARITY"
+    # log.debug(f"After stationarity check: {_num_good(meta_df)}")
 
     meta_df.reset_index(inplace=True, drop=False)
 
-    log.debug(f"After stationarity check: {_num_good(meta_df)}")
 
     # check the duration for single blocks
     idx = meta_df.query(
@@ -499,6 +551,8 @@ def merge_blocks(meta_df, target_length=1080, transient_length=360):
 
     new_rows = []
     dropped_units = 0
+
+    assert "spiketimes" in meta_df.columns, "call `load_spikes` first"
 
     try:
         groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
