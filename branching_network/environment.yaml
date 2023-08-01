@@ -33,6 +33,7 @@ dependencies:
   - pymc # add version
   - arviz # add version
   - humanize
+  - pytest
   - pyfftw=0.13 # there might be a bug in the pyfftw _conda_ package: https://github.com/pyFFTW/pyFFTW/issues/294, but we do not use the fft in the main code, anymore. thus, minor issue.
   - pip
   - pip:

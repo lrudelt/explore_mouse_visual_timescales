@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-01 13:22:44
+# @Last Modified: 2023-08-01 15:56:06
 # ------------------------------------------------------------------------------ #
 
 
@@ -32,7 +32,7 @@ from humanize import naturalsize
 # silence numba deprications, numpy overflows
 warnings.filterwarnings("ignore")
 
-sys.path.append("../")
+# sys.path.append("../")
 
 # ------------------------------------------------------------------------------ #
 # Loading of hdf5 data, maybe we put this into its own file.
@@ -243,9 +243,9 @@ def load_session(
             session_dict[session][stimulus][block]["data"] = da
             # update num_spikes column in the metadata
             for uid in session_dict[session][stimulus][block]["meta"]["unit_id"].unique():
-                session_dict[session][stimulus][block]["meta"].loc[
-                    uid, "num_spikes"
-                ] = np.isfinite(da.sel(unit_id=uid)).sum().item()
+                session_dict[session][stimulus][block]["meta"].loc[uid, "num_spikes"] = (
+                    np.isfinite(da.sel(unit_id=uid)).sum().item()
+                )
 
     if as_dict:
         return session_dict
@@ -519,7 +519,6 @@ def default_filter(meta_df, target_length=1080, transient_length=360, trim=True)
 
     meta_df.reset_index(inplace=True, drop=False)
 
-
     # check the duration for single blocks
     idx = meta_df.query(
         f"stimulus == 'spontaneous'"
@@ -631,8 +630,7 @@ def merge_blocks(meta_df, target_length=1080, transient_length=360):
 
 def binned_spike_count(spiketimes, bin_size):
     """
-    Similar to a population_rate, but we get a number of spike counts, per neuron,
-    as needed for e.g. cross-correlations.
+    Get a number of spike counts in a time bin, per neuron.
 
     Parameters
     ----------
@@ -647,22 +645,53 @@ def binned_spike_count(spiketimes, bin_size):
     counts : 2d array
         time series of the counted number of spikes per bin,
         one row for each neuron, in steps of bin_size
+
+    Notes
+    -----
+    - to aggregate across neurons, simply call `np.sum(counts, axis=0)` afterwards
+    - pulling out individual neurons after they were binned together with other ones
+        is not guaranteed to give the same result as binning separately, because
+        the spike times are aligned to the first one in the block.
     """
     # type checking is easier here than in numba
     if len(spiketimes) == 0:
         return np.array([])
-    elif not isinstance(spiketimes[0], (np.ndarray, xr.DataArray)):
-        raise ValueError("spiketimes must be a list of numpy arrays or a 2d array")
 
-    if isinstance(spiketimes[0], xr.DataArray):
-        # this is only needed if we want to use numba.
-        spiketimes = [spiketimes[n_id].to_numpy() for n_id in range(len(spiketimes))]
+    # this is only needed because we want to use numba, which doesnt like xarray
+    if isinstance(spiketimes, xr.DataArray):
+        spiketimes = spiketimes.to_numpy()
+    elif isinstance(spiketimes, list):
+        if isinstance(spiketimes[0], xr.DataArray):
+            spiketimes = [spiketimes[n_id].to_numpy() for n_id in range(len(spiketimes))]
 
+    spiketimes = np.array(spiketimes)
+    # now we are sure to have a numpy array. check it's 2d
+    try:
+        len(spiketimes[0])
+    except TypeError:
+        spiketimes = np.array([spiketimes])
+
+    if len(spiketimes.shape) > 2:
+        raise ValueError(
+            "spiketimes must have at most 2 dimensions: (neuron, time), "
+            f"found {len(spiketimes.shape)}. Consider `np.squeeze()`"
+        )
+    # but it might still be ragged, as in differnt length per neuron.
+    # thats fine though.
+
+    log.debug(
+        f"Binning spiketimes: dtype {type(spiketimes)} with shape"
+        f" {spiketimes.shape}"
+    )
     return _binned_spike_count(spiketimes, bin_size)
 
 
-@jit(nopython=True, parallel=True, fastmath=False, cache=True)
+@jit(nopython=True, parallel=False, fastmath=False, cache=True)
 def _binned_spike_count(spiketimes, bin_size):
+    """
+    lower level, here we rely on a 2d array of spiketimes,
+    first dim neuron, second dim spiketimes, nan-padded.
+    """
     num_n = len(spiketimes)
 
     t_min = np.inf
@@ -680,9 +709,7 @@ def _binned_spike_count(spiketimes, bin_size):
         for t in train:
             if not np.isfinite(t):
                 break
-            # @LR decision: do we align to a global min (pauls)
-            # or to a local one, per block (lucas)
-            # t_idx = int((t - t_min) / bin_size)
+            # align to the block-level t min (not the global one)
             t_idx = int((t - train[0]) / bin_size)
             counts[n_id, t_idx] += 1
 
