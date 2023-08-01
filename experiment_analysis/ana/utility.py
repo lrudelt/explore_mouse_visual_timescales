@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-01 12:32:00
+# @Last Modified: 2023-08-01 13:22:44
 # ------------------------------------------------------------------------------ #
 
 
@@ -124,6 +124,8 @@ def load_session(
         e.g. `filter=dict(stimulus=["stim_1"], block=["block_1", "block_2"])`
     meta_only (bool): if True, only load metadata, not spiketimes
     as_dict (bool): if True, return a dictionary instead of a dataframe.
+    pad_spikes_to (int): if not None, pad the spiketimes with nan to this length.
+        might help when merging xarrays, later.
 
     # Returns
     meta_df (pandas.DataFrame): dataframe holding the metadata, OR:
@@ -239,6 +241,11 @@ def load_session(
                 )
 
             session_dict[session][stimulus][block]["data"] = da
+            # update num_spikes column in the metadata
+            for uid in session_dict[session][stimulus][block]["meta"]["unit_id"].unique():
+                session_dict[session][stimulus][block]["meta"].loc[
+                    uid, "num_spikes"
+                ] = np.isfinite(da.sel(unit_id=uid)).sum().item()
 
     if as_dict:
         return session_dict
@@ -341,7 +348,7 @@ def load_spikes(meta_df):
 
     num_rows = 0
 
-    for fdx, file in enumerate(tqdm(files, desc="Loading spiking data")):
+    for fdx, file in enumerate(tqdm(files, desc="Loading spikes for sessions")):
         session_dict = load_session(file, filter=filter, as_dict=True)
 
         # iterate the dict, find out where to put each units dataframe.
