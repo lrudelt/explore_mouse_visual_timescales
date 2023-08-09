@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-01 15:56:06
+# @Last Modified: 2023-08-09 16:46:38
 # ------------------------------------------------------------------------------ #
 
 
@@ -102,7 +102,9 @@ def all_unit_metadata(
         meta_df.append(load_session(fp, meta_only=True))
 
     meta_df = pd.concat(meta_df, axis=0, ignore_index=True)
-    meta_df.set_index("unit_id", inplace=True, drop=False)
+    # unit_ids are not unique, so lets avoid using them as the index.
+    meta_df.reset_index(inplace=True, drop=True)
+
     _meta_df = meta_df.copy()
 
     return meta_df
@@ -253,40 +255,6 @@ def load_session(
         return _session_dict_to_df(session_dict)
 
 
-def _key_to_parts(key):
-    """
-    We have a convention to store data in hdf5 files.
-    Each group key looks like this:
-    `session_774875821_stimulus_natural_movie_one_more_repeats_ \
-    stimulus_block_8.0_spiketimes`
-
-    with this helper we use regex to get the individual parts as a dict:
-    session (int):
-    stimulus (str):
-    block (str):
-    kind (str): either metadata or spiketimes
-    """
-
-    parts = dict()
-
-    # regex magic to get parts of the key
-    # session is the integer sequence after `session_`
-    parts["session"] = re.search(r"session_(\d+)_", key).group(1)
-    parts["stimulus"] = re.search(r"stimulus_(.+)_stimulus_block", key).group(1)
-    parts["block"] = re.search(r"stimulus_block_(.+)_", key).group(1)
-    # word characters after last `_` and before the end of the key
-    parts["kind"] = re.search(r"_([a-zA-Z0-9.-]+)$", key).group(1)
-
-    if parts["kind"] not in ["metadata", "spiketimes"]:
-        raise ValueError(f"Unknown kind {parts['kind']} for key '{key}'")
-
-    # blocks shall always remain strings, make sure sessions are integers?
-    # units from metadata dataframe are int64, anyway. mightaswell be consistent.
-    parts["session"] = int(parts["session"])
-
-    return parts
-
-
 def load_spikes(meta_df):
     """
     After filtering the global index for desired untis / criteria,
@@ -330,7 +298,7 @@ def load_spikes(meta_df):
     res_df["spiketimes"] = None
     res_df["spiketimes"] = res_df["spiketimes"].astype(object)
 
-    res_df.set_index(["session", "stimulus", "block", "unit_id"], inplace=True)
+    res_df.set_index(["session", "stimulus", "block", "unit_id"], inplace=True, drop=True)
 
     filter = dict(
         # lets try to be smart with the filtering. units: no!
@@ -374,8 +342,268 @@ def load_spikes(meta_df):
     if not num_rows == len(res_df):
         raise ValueError(f"Loaded {num_rows} rows, but expected {len(res_df)}")
 
+    # we dropped the columns above, so here we need to re-insert by drop=False
     res_df.reset_index(inplace=True, drop=False)
     return res_df
+
+
+def load_metrics(meta_df, data_dir, inplace=False, cols=None):
+    """
+    Load metrics from the Allen Institute csv files,
+    (brain_observatory_1.1_analysis_metrics.csv and
+    functional_connectivity_analysis_metrics.csv)
+
+    # Notes
+    - focus is on numerical columns of the csv.
+        non-numeric types not tested.
+    """
+
+    if not inplace:
+        meta_df = meta_df.copy()
+
+    csvs = [
+        "brain_observatory_1.1_analysis_metrics.csv",
+        "functional_connectivity_analysis_metrics.csv",
+    ]
+
+    # load dataframes. we only need columns for stimulus selectivity
+    if cols is None:
+        cols = ["image_selectivity_ns", "pref_dir_dm"]
+
+    loaded_dfs = []
+    loaded_csvs = []
+    for csv in csvs:
+        csv_path = os.path.abspath(os.path.join(data_dir, csv))
+        df = _load_metrics_from_csv(csv_path, cols=cols)
+        log.debug(f"Loaded columns {df.columns.to_list()} from {csv_path}")
+        loaded_dfs.append(df)
+        loaded_csvs.append(csv_path)
+
+    # some sanity checks
+    for col in cols:
+        col_dfs = [df for df in loaded_dfs if col in df.columns]
+        if len(col_dfs) == 0:
+            raise ValueError(f"Column {col} not found in any of the loaded dataframes.")
+        elif len(col_dfs) > 1:
+            raise ValueError(f"Column {col} found in multiple dataframes.")
+
+        if col in meta_df.columns and meta_df[col].isfinite().sum() > 0:
+            raise ValueError(f"Column {col} already exists in meta_df, and has values.")
+
+        meta_df[col] = np.nan
+
+    # merge the dataframes, by unit_id. units likely occur multiple times in meta_df.
+    # merging can be finicky, doing this manually may a bit slower but should be safe
+    for idx, df in enumerate(loaded_dfs):
+        if len(df.columns) == 1 or len(df) == 0:
+            # only unit_id or no rows
+            continue
+        same_units = meta_df["unit_id"].isin(df["unit_id"])  # not unique units but rows
+        log.debug(f"Matched {same_units.sum()} rows from meta_df in {loaded_csvs[idx]}")
+
+        cois = [c for c in cols if c in df.columns]
+        for unit in meta_df["unit_id"].unique():
+            if unit in df["unit_id"].values:
+                meta_df.loc[meta_df["unit_id"] == unit, cois] = df.loc[
+                    df["unit_id"] == unit, cois
+                ].values
+
+    for col in cols:
+        if len(meta_df[col].dropna()) == 0:
+            log.warning(f"Column {col} only has NaNs after merging.")
+
+    return meta_df
+
+
+def default_filter(
+    meta_df, target_length=1080, transient_length=360, trim=True, inplace=False
+):
+    """
+    Apply our default set of quality controls to the metadata frame.
+
+    # Parameters
+    meta_df: the metadata dataframe
+    target_length: the target length for recording duration, in seconds
+        required duration for stimuli with two blocks is 0.5 target_length for each block
+    transient_length: in seconds, added to target_length (to account for changes at the
+        beginning of each block)
+    trim : if True (default)
+        remove rows that failed the quality checks.
+        to get the full-length dataframe, set to False, and
+        this will update the `invalid_spiketimes_check` column. Then you can query like:
+        `meta_df.query("invalid_spiketimes_check == 'SUCCESS'")`
+    inplace : if True, modify the dataframe in place. Otherwise, return a copy.
+
+    # Returns
+    meta_df: the modified dataframe
+
+    """
+
+    if not inplace:
+        meta_df = meta_df.copy()
+
+    def _num_good(df):
+        return len(df.query("invalid_spiketimes_check == 'SUCCESS'"))
+
+    log.debug(f"Default quality checks, valid rows before: {_num_good(meta_df)}")
+
+    # We find a minimal firing rate of approximately 0.02 Hz and a maximal firing rate of approximately 90 Hz, with 95\% of firing rates in the range of 0.19 Hz to 21.11 Hz. The highest firing rates are certainly biologically implausible, but units with these values are few so that they should not distort results in any significant way\
+    # This check effectively filters units without _any_ spiking
+    meta_df.loc[
+        meta_df["firing_rate"] < 0.01, "invalid_spiketimes_check"
+    ] = "ERR_LO_FIR_RATE"
+    log.debug(f"After rate check: {_num_good(meta_df)}")
+
+    meta_df.loc[
+        meta_df["recording_length"] == 0, "invalid_spiketimes_check"
+    ] = "ERR_EMPTY"
+    log.debug(f"After zero-length check: {_num_good(meta_df)}")
+
+    # stationarity.
+    # group by units and stimuli, and if the stim has two blocks,
+    # check that the rate is not too far off between blocks
+    # requires "neutral" index
+
+    # meta_df.reset_index(inplace=True, drop=True)
+    meta_df.set_index(["unit_id", "stimulus"], inplace=True, drop=True)
+
+    # including stationarity checks did not change results.
+    # for (unit_id, stimulus), df in tqdm(
+    #     meta_df.groupby(["unit_id", "stimulus"]), desc="Stationarity check"
+    # ):
+    #     if len(df) < 2:
+    #         continue
+
+    #     # get the firing rate for the first and second block
+    #     fr1 = df.iloc[0]["firing_rate"]
+    #     fr2 = df.iloc[1]["firing_rate"]
+
+    #     # if the difference is too big, mark the unit as invalid
+    #     if abs(fr1 - fr2) / np.mean([fr1, fr2]) > 0.5:
+    #         meta_df.loc[
+    #             (unit_id, stimulus), "invalid_spiketimes_check"
+    #         ] = "ERR_STATIONARITY"
+    # log.debug(f"After stationarity check: {_num_good(meta_df)}")
+
+    meta_df.reset_index(inplace=True, drop=False)
+
+    # check the duration for single blocks
+    idx = meta_df.query(
+        f"stimulus == 'spontaneous'"
+        + f" & recording_length < {0.9 * (target_length + transient_length)}"
+    ).index
+    meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
+
+    # check total duration of two=block stimuli
+    idx = meta_df.query(
+        f"stimulus != 'spontaneous'"
+        + f" & recording_length < {0.9 * (target_length / 2 + transient_length)}"
+    ).index
+    meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
+
+    log.debug(f"After minmum-duration check: {_num_good(meta_df)}")
+
+    if trim:
+        meta_df = meta_df.query("invalid_spiketimes_check == 'SUCCESS'")
+
+    # reset the index to the default (unit_id)
+    meta_df.set_index("unit_id", inplace=True, drop=False)
+
+    return meta_df
+
+
+def merge_blocks(meta_df, target_length=1080, transient_length=360, inplace=True):
+    """
+    Merge the spiking data from two blocks (for those stimuli that have two blocks).
+
+    best do this after filtering etc.
+
+    # Returns
+    meta_df: a new dataframe. to combine with the original one use
+        `pd.concat([meta_df, meta_df2])`
+
+    # Parameters
+    meta_df: the metadata dataframe, data already loaded, checks performed.
+        Also, we expect only two-block stimuli to be present.
+    """
+
+    new_rows = []
+    dropped_units = 0
+
+    if not inplace:
+        meta_df = meta_df.copy()
+
+    assert "spiketimes" in meta_df.columns, "call `load_spikes` first"
+
+    try:
+        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
+    except ValueError:
+        # this happens when the index is set to unit_id (and unit_id is still a column)
+        # resetting is not great, it will modify the outer df which seems unexpected.
+        meta_df = meta_df.reset_index(drop=True)
+        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
+
+    for df_idx, df in tqdm(groupby, desc="Merging blocks for units", total=len(groupby)):
+        if len(df) == 1:
+            # the unit was only recorded in one block
+            dropped_units += 1
+            continue
+        elif len(df) != 2:
+            raise ValueError("Expected two blocks for each stimulus")
+
+        # squeeze effectively gets rid of len-1 dimensions
+        spikes1 = df.iloc[0]["spiketimes"].copy().squeeze()
+        spikes2 = df.iloc[1]["spiketimes"].copy().squeeze()
+
+        # remove the nan-padding
+        spikes1 = spikes1[np.isfinite(spikes1)]
+        spikes2 = spikes2[np.isfinite(spikes2)]
+
+        # align to first spike
+        spikes1 = spikes1 - spikes1[0]
+        spikes2 = spikes2 - spikes2[0]
+
+        # remove the transient
+        spikes1 = spikes1[spikes1 > transient_length] - transient_length
+        spikes2 = spikes2[spikes2 > transient_length] - transient_length
+
+        # limit the duration
+        spikes1 = spikes1[spikes1 < target_length]
+        spikes2 = spikes2[spikes2 < target_length]
+
+        # align second spike train to the end of the first @LR
+        spikes2 = spikes2 + spikes1[-1]
+
+        # assign the new coordinates (block) to xarray
+        new_block = f"merged_{df.iloc[0]['block']}_and_{df.iloc[1]['block']}"
+        spikes1.coords["block"] = new_block
+        spikes2.coords["block"] = new_block
+        spikes = xr.concat([spikes1, spikes2], dim="spiketimes")
+
+        # create the new row, updating columns
+        new_row = df.iloc[0].copy()
+        new_row["spiketimes"] = spikes
+        new_row["block"] = new_block
+        new_row["num_spikes"] = len(spikes)
+        new_row["recording_length"] = (spikes[-1] - spikes[0]).values[()]
+        new_row["firing_rate"] = len(spikes) / new_row["recording_length"]
+        new_rows.append(new_row)
+
+    res_df = pd.DataFrame(new_rows)
+    log.debug(
+        f"Did not merge {dropped_units} units (only found in one block)."
+        f" {len(res_df['unit_id'].unique())} units remained."
+    )
+
+    meta_df = pd.concat([meta_df, res_df])
+    meta_df.reset_index(inplace=True, drop=True)
+
+    return meta_df
+
+
+# ------------------------------------------------------------------------------ #
+# helpers for session handling etc.
+# ------------------------------------------------------------------------------ #
 
 
 def _session_dict_to_df(session_dict):
@@ -449,178 +677,79 @@ def _session_dict_to_xr(session_dict):
     return session_df
 
 
-def default_filter(meta_df, target_length=1080, transient_length=360, trim=True):
+def _key_to_parts(key):
     """
-    Apply our default set of quality controls to the metadata frame.
+    We have a convention to store data in hdf5 files.
+    Each group key looks like this:
+    `session_774875821_stimulus_natural_movie_one_more_repeats_ \
+    stimulus_block_8.0_spiketimes`
 
-    `meta_df` is not modified in place.
-
-    # Parameters
-    meta_df: the metadata dataframe
-    target_length: the target length for recording duration, in seconds
-        required duration for stimuli with two blocks is 0.5 target_length for each block
-    transient_length: in seconds, added to target_length (to account for changes at the
-        beginning of each block)
-    trim : if True (default)
-        remove rows that failed the quality checks.
-        to get the full-length dataframe, set to False, and
-        this will update the `invalid_spiketimes_check` column. Then you can query like:
-        `meta_df.query("invalid_spiketimes_check == 'SUCCESS'")`
-
-    # Returns
-    meta_df: the modified dataframe
-
+    with this helper we use regex to get the individual parts as a dict:
+    session (int):
+    stimulus (str):
+    block (str):
+    kind (str): either metadata or spiketimes
     """
 
-    meta_df = meta_df.copy()
+    parts = dict()
 
-    def _num_good(df):
-        return len(df.query("invalid_spiketimes_check == 'SUCCESS'"))
+    # regex magic to get parts of the key
+    # session is the integer sequence after `session_`
+    parts["session"] = re.search(r"session_(\d+)_", key).group(1)
+    parts["stimulus"] = re.search(r"stimulus_(.+)_stimulus_block", key).group(1)
+    parts["block"] = re.search(r"stimulus_block_(.+)_", key).group(1)
+    # word characters after last `_` and before the end of the key
+    parts["kind"] = re.search(r"_([a-zA-Z0-9.-]+)$", key).group(1)
 
-    log.debug(f"Default quality checks, valid rows before: {_num_good(meta_df)}")
+    if parts["kind"] not in ["metadata", "spiketimes"]:
+        raise ValueError(f"Unknown kind {parts['kind']} for key '{key}'")
 
-    # We find a minimal firing rate of approximately 0.02 Hz and a maximal firing rate of approximately 90 Hz, with 95\% of firing rates in the range of 0.19 Hz to 21.11 Hz. The highest firing rates are certainly biologically implausible, but units with these values are few so that they should not distort results in any significant way\
-    # This check effectively filters units without _any_ spiking
-    meta_df.loc[
-        meta_df["firing_rate"] < 0.01, "invalid_spiketimes_check"
-    ] = "ERR_LO_FIR_RATE"
-    log.debug(f"After rate check: {_num_good(meta_df)}")
+    # blocks shall always remain strings, make sure sessions are integers?
+    # units from metadata dataframe are int64, anyway. mightaswell be consistent.
+    parts["session"] = int(parts["session"])
 
-    meta_df.loc[
-        meta_df["recording_length"] == 0, "invalid_spiketimes_check"
-    ] = "ERR_EMPTY"
-    log.debug(f"After zero-length check: {_num_good(meta_df)}")
-
-    # stationarity.
-    # group by units and stimuli, and if the stim has two blocks,
-    # check that the rate is not too far off between blocks
-    # requires "neutral" index
-
-    # meta_df.reset_index(inplace=True, drop=True)
-    meta_df.set_index(["unit_id", "stimulus"], inplace=True, drop=True)
-
-    # including stationarity checks did not change results.
-    # for (unit_id, stimulus), df in tqdm(
-    #     meta_df.groupby(["unit_id", "stimulus"]), desc="Stationarity check"
-    # ):
-    #     if len(df) < 2:
-    #         continue
-
-    #     # get the firing rate for the first and second block
-    #     fr1 = df.iloc[0]["firing_rate"]
-    #     fr2 = df.iloc[1]["firing_rate"]
-
-    #     # if the difference is too big, mark the unit as invalid
-    #     if abs(fr1 - fr2) / np.mean([fr1, fr2]) > 0.5:
-    #         meta_df.loc[
-    #             (unit_id, stimulus), "invalid_spiketimes_check"
-    #         ] = "ERR_STATIONARITY"
-    # log.debug(f"After stationarity check: {_num_good(meta_df)}")
-
-    meta_df.reset_index(inplace=True, drop=False)
-
-    # check the duration for single blocks
-    idx = meta_df.query(
-        f"stimulus == 'spontaneous'"
-        + f" & recording_length < {0.9 * (target_length + transient_length)}"
-    ).index
-    meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
-
-    # check total duration of two=block stimuli
-    idx = meta_df.query(
-        f"stimulus != 'spontaneous'"
-        + f" & recording_length < {0.9 * (target_length / 2 + transient_length)}"
-    ).index
-    meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
-
-    log.debug(f"After minmum-duration check: {_num_good(meta_df)}")
-
-    if trim:
-        meta_df = meta_df.query("invalid_spiketimes_check == 'SUCCESS'")
-
-    # reset the index to the default (unit_id)
-    meta_df.set_index("unit_id", inplace=True, drop=False)
-
-    return meta_df
+    return parts
 
 
-def merge_blocks(meta_df, target_length=1080, transient_length=360):
+def _load_metrics_from_csv(csv_path, cols=None):
     """
-    Merge the spiking data from two blocks (for stimuli with two blocks).
+    Loads Allen Institute metrics from the specified csv file, keeping only the
+    desired columns (None for all).
 
-    do this last.
+    cols may contain columns not found in the csv, these are ignored.
+    """
+    metric_df = pd.read_csv(csv_path, index_col=None)
 
-    # Parameters
-    meta_df: the metadata dataframe, data already loaded, checks performed.
-        Also, we expect only two-block stimuli to be present.
+    # rename columns to match our format
+    metric_df.rename(columns={"ecephys_unit_id": "unit_id"}, inplace=True)
+    assert "unit_id" in metric_df.columns
+
+    # drop columns that we don't need
+    if cols is not None:
+        cols = cols.copy()
+        assert isinstance(cols, list)
+        cols = ["unit_id"] + cols
+        cols_to_drop = [c for c in metric_df.columns if c not in cols]
+        metric_df.drop(columns=cols_to_drop, inplace=True)
+
+    return metric_df
+
+
+# ------------------------------------------------------------------------------ #
+# Saving the dataframe
+# ------------------------------------------------------------------------------ #
+
+
+def save_dataframe(meta_df, path, cols_to_skip=None):
+    """
+    Thin wrapper around pandas df.to_hdf
     """
 
-    new_rows = []
-    dropped_units = 0
-
-    assert "spiketimes" in meta_df.columns, "call `load_spikes` first"
-
-    try:
-        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
-    except ValueError:
-        # this happens when the index is set to unit_id (and unit_id is still a column)
-        # resetting is not great, it will modify the outer df which seems unexpected.
-        meta_df = meta_df.reset_index(drop=True)
-        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
-
-    for df_idx, df in tqdm(groupby, desc="Merging blocks", total=len(groupby)):
-        if len(df) == 1:
-            # the unit was only recorded in one block
-            dropped_units += 1
-            continue
-        elif len(df) != 2:
-            raise ValueError("Expected two blocks for each stimulus")
-
-        # squeeze effectively gets rid of len-1 dimensions
-        spikes1 = df.iloc[0]["spiketimes"].copy().squeeze()
-        spikes2 = df.iloc[1]["spiketimes"].copy().squeeze()
-
-        # remove the nan-padding
-        spikes1 = spikes1[np.isfinite(spikes1)]
-        spikes2 = spikes2[np.isfinite(spikes2)]
-
-        # align to first spike
-        spikes1 = spikes1 - spikes1[0]
-        spikes2 = spikes2 - spikes2[0]
-
-        # remove the transient
-        spikes1 = spikes1[spikes1 > transient_length] - transient_length
-        spikes2 = spikes2[spikes2 > transient_length] - transient_length
-
-        # limit the duration
-        spikes1 = spikes1[spikes1 < target_length]
-        spikes2 = spikes2[spikes2 < target_length]
-
-        # align second spike train to the end of the first @LR
-        spikes2 = spikes2 + spikes1[-1]
-
-        # assign the new coordinates (block) to xarray
-        new_block = f"merged_{df.iloc[0]['block']}_and_{df.iloc[1]['block']}"
-        spikes1.coords["block"] = new_block
-        spikes2.coords["block"] = new_block
-        spikes = xr.concat([spikes1, spikes2], dim="spiketimes")
-
-        # create the new row, updating columns
-        new_row = df.iloc[0].copy()
-        new_row["spiketimes"] = spikes
-        new_row["block"] = new_block
-        new_row["num_spikes"] = len(spikes)
-        new_row["recording_length"] = (spikes[-1] - spikes[0]).values[()]
-        new_row["firing_rate"] = len(spikes) / new_row["recording_length"]
-        new_rows.append(new_row)
-
-    res_df = pd.DataFrame(new_rows)
-    log.debug(
-        f"Dropped {dropped_units} units (only found in one block)."
-        f" {len(res_df['unit_id'].unique())} units remaining."
-    )
-
-    return res_df
+    if cols_to_skip is None:
+        cols_to_skip = []
+    cols_to_save = [c for c in meta_df.columns if c not in cols_to_skip]
+    df_to_save = meta_df[cols_to_save]
+    df_to_save.to_hdf(path, key="meta_df", mode="w", complib="zlbib", complevel=9)
 
 
 # ------------------------------------------------------------------------------ #
@@ -680,8 +809,7 @@ def binned_spike_count(spiketimes, bin_size):
     # thats fine though.
 
     log.debug(
-        f"Binning spiketimes: dtype {type(spiketimes)} with shape"
-        f" {spiketimes.shape}"
+        f"Binning spiketimes: dtype {type(spiketimes)} with shape {spiketimes.shape}"
     )
     return _binned_spike_count(spiketimes, bin_size)
 
@@ -707,6 +835,7 @@ def _binned_spike_count(spiketimes, bin_size):
     for n_id in range(0, num_n):
         train = spiketimes[n_id]
         for t in train:
+            # we have nan-padding. stop when that starts
             if not np.isfinite(t):
                 break
             # align to the block-level t min (not the global one)
