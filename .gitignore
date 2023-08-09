@@ -2,6 +2,7 @@ data/*
 data/intrinsic_timescale/*
 data/branching-network/*
 data/bn_with_correlated_input/*
+experiment_analysis/data/*
 *~
 *.nwb
 paper_plots/img/*
