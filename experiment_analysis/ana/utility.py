@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-09 16:46:38
+# @Last Modified: 2023-08-10 10:42:08
 # ------------------------------------------------------------------------------ #
 
 
@@ -12,8 +12,8 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)-12s | %(message)s",
     level=logging.WARNING,
 )
-log = logging.getLogger(__name__)
-log.setLevel("DEBUG")
+log = logging.getLogger("its_utility")
+log.setLevel("WARNING")
 
 import os
 import re
@@ -749,7 +749,7 @@ def save_dataframe(meta_df, path, cols_to_skip=None):
         cols_to_skip = []
     cols_to_save = [c for c in meta_df.columns if c not in cols_to_skip]
     df_to_save = meta_df[cols_to_save]
-    df_to_save.to_hdf(path, key="meta_df", mode="w", complib="zlbib", complevel=9)
+    df_to_save.to_hdf(path, key="meta_df", mode="w", complib="zlib", complevel=9)
 
 
 # ------------------------------------------------------------------------------ #
