@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-10 10:42:08
+# @Last Modified: 2023-08-11 18:20:03
 # ------------------------------------------------------------------------------ #
 
 
@@ -99,7 +99,12 @@ def all_unit_metadata(
     meta_df = []
 
     for fp in tqdm(files, desc="Fetching metadata from sessions"):
-        meta_df.append(load_session(fp, meta_only=True))
+        try:
+            session_df = load_session(fp, meta_only=True)
+        except ValueError as e:
+            log.info(f"Skipping {fp}. This might be a hdf5 file with no session data.")
+            continue
+        meta_df.append(session_df)
 
     meta_df = pd.concat(meta_df, axis=0, ignore_index=True)
     # unit_ids are not unique, so lets avoid using them as the index.
@@ -347,74 +352,6 @@ def load_spikes(meta_df):
     return res_df
 
 
-def load_metrics(meta_df, data_dir, inplace=False, cols=None):
-    """
-    Load metrics from the Allen Institute csv files,
-    (brain_observatory_1.1_analysis_metrics.csv and
-    functional_connectivity_analysis_metrics.csv)
-
-    # Notes
-    - focus is on numerical columns of the csv.
-        non-numeric types not tested.
-    """
-
-    if not inplace:
-        meta_df = meta_df.copy()
-
-    csvs = [
-        "brain_observatory_1.1_analysis_metrics.csv",
-        "functional_connectivity_analysis_metrics.csv",
-    ]
-
-    # load dataframes. we only need columns for stimulus selectivity
-    if cols is None:
-        cols = ["image_selectivity_ns", "pref_dir_dm"]
-
-    loaded_dfs = []
-    loaded_csvs = []
-    for csv in csvs:
-        csv_path = os.path.abspath(os.path.join(data_dir, csv))
-        df = _load_metrics_from_csv(csv_path, cols=cols)
-        log.debug(f"Loaded columns {df.columns.to_list()} from {csv_path}")
-        loaded_dfs.append(df)
-        loaded_csvs.append(csv_path)
-
-    # some sanity checks
-    for col in cols:
-        col_dfs = [df for df in loaded_dfs if col in df.columns]
-        if len(col_dfs) == 0:
-            raise ValueError(f"Column {col} not found in any of the loaded dataframes.")
-        elif len(col_dfs) > 1:
-            raise ValueError(f"Column {col} found in multiple dataframes.")
-
-        if col in meta_df.columns and meta_df[col].isfinite().sum() > 0:
-            raise ValueError(f"Column {col} already exists in meta_df, and has values.")
-
-        meta_df[col] = np.nan
-
-    # merge the dataframes, by unit_id. units likely occur multiple times in meta_df.
-    # merging can be finicky, doing this manually may a bit slower but should be safe
-    for idx, df in enumerate(loaded_dfs):
-        if len(df.columns) == 1 or len(df) == 0:
-            # only unit_id or no rows
-            continue
-        same_units = meta_df["unit_id"].isin(df["unit_id"])  # not unique units but rows
-        log.debug(f"Matched {same_units.sum()} rows from meta_df in {loaded_csvs[idx]}")
-
-        cois = [c for c in cols if c in df.columns]
-        for unit in meta_df["unit_id"].unique():
-            if unit in df["unit_id"].values:
-                meta_df.loc[meta_df["unit_id"] == unit, cois] = df.loc[
-                    df["unit_id"] == unit, cois
-                ].values
-
-    for col in cols:
-        if len(meta_df[col].dropna()) == 0:
-            log.warning(f"Column {col} only has NaNs after merging.")
-
-    return meta_df
-
-
 def default_filter(
     meta_df, target_length=1080, transient_length=360, trim=True, inplace=False
 ):
@@ -442,6 +379,10 @@ def default_filter(
     if not inplace:
         meta_df = meta_df.copy()
 
+    if not np.all(meta_df["invalid_spiketimes_check"] == "SUCCESS"):
+        log.warning("Some units already have invalid_spiketimes_check, we overwrite.")
+        meta_df["invalid_spiketimes_check"] = "SUCCESS"
+
     def _num_good(df):
         return len(df.query("invalid_spiketimes_check == 'SUCCESS'"))
 
@@ -464,9 +405,6 @@ def default_filter(
     # check that the rate is not too far off between blocks
     # requires "neutral" index
 
-    # meta_df.reset_index(inplace=True, drop=True)
-    meta_df.set_index(["unit_id", "stimulus"], inplace=True, drop=True)
-
     # including stationarity checks did not change results.
     # for (unit_id, stimulus), df in tqdm(
     #     meta_df.groupby(["unit_id", "stimulus"]), desc="Stationarity check"
@@ -485,8 +423,6 @@ def default_filter(
     #         ] = "ERR_STATIONARITY"
     # log.debug(f"After stationarity check: {_num_good(meta_df)}")
 
-    meta_df.reset_index(inplace=True, drop=False)
-
     # check the duration for single blocks
     idx = meta_df.query(
         f"stimulus == 'spontaneous'"
@@ -494,25 +430,37 @@ def default_filter(
     ).index
     meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
 
-    # check total duration of two=block stimuli
+    # find stimuli that have two different blocks:
+    stims_with_two_blocks = []
+    for stim in meta_df["stimulus"].unique():
+        if len(meta_df.query(f"stimulus == '{stim}'")["block"].unique()) > 1:
+            stims_with_two_blocks.append(stim)
+
+    # check total duration of two-block stimuli
     idx = meta_df.query(
-        f"stimulus != 'spontaneous'"
+        f"stimulus in {stims_with_two_blocks}"
         + f" & recording_length < {0.9 * (target_length / 2 + transient_length)}"
     ).index
     meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
-
     log.debug(f"After minmum-duration check: {_num_good(meta_df)}")
+
+    # how many units did we exclude per stimulus?
+    for stim in meta_df["stimulus"].unique():
+        num_total = len(meta_df.query(f"stimulus == '{stim}'"))
+        num_bad = len(
+            meta_df.query(
+                f"stimulus == '{stim}' & invalid_spiketimes_check != 'SUCCESS'"
+            )
+        )
+        log.debug(f"Excluded {num_bad} / {num_total} units for stimulus {stim}")
 
     if trim:
         meta_df = meta_df.query("invalid_spiketimes_check == 'SUCCESS'")
 
-    # reset the index to the default (unit_id)
-    meta_df.set_index("unit_id", inplace=True, drop=False)
-
     return meta_df
 
 
-def merge_blocks(meta_df, target_length=1080, transient_length=360, inplace=True):
+def merge_blocks(temp_df, target_length=1080, transient_length=360, inplace=True):
     """
     Merge the spiking data from two blocks (for those stimuli that have two blocks).
 
@@ -533,15 +481,15 @@ def merge_blocks(meta_df, target_length=1080, transient_length=360, inplace=True
     if not inplace:
         meta_df = meta_df.copy()
 
-    assert "spiketimes" in meta_df.columns, "call `load_spikes` first"
+    assert "spiketimes" in temp_df.columns, "call `load_spikes` first"
 
     try:
-        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
+        groupby = temp_df.groupby(["session", "stimulus", "unit_id"])
     except ValueError:
         # this happens when the index is set to unit_id (and unit_id is still a column)
         # resetting is not great, it will modify the outer df which seems unexpected.
-        meta_df = meta_df.reset_index(drop=True)
-        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
+        temp_df = temp_df.reset_index(drop=True)
+        groupby = temp_df.groupby(["session", "stimulus", "unit_id"])
 
     for df_idx, df in tqdm(groupby, desc="Merging blocks for units", total=len(groupby)):
         if len(df) == 1:
@@ -551,43 +499,50 @@ def merge_blocks(meta_df, target_length=1080, transient_length=360, inplace=True
         elif len(df) != 2:
             raise ValueError("Expected two blocks for each stimulus")
 
-        # squeeze effectively gets rid of len-1 dimensions
-        spikes1 = df.iloc[0]["spiketimes"].copy().squeeze()
-        spikes2 = df.iloc[1]["spiketimes"].copy().squeeze()
+        try:
+            # squeeze effectively gets rid of len-1 dimensions
+            spikes1 = df.iloc[0]["spiketimes"].copy().squeeze()
+            spikes2 = df.iloc[1]["spiketimes"].copy().squeeze()
 
-        # remove the nan-padding
-        spikes1 = spikes1[np.isfinite(spikes1)]
-        spikes2 = spikes2[np.isfinite(spikes2)]
+            # remove the nan-padding
+            spikes1 = spikes1[np.isfinite(spikes1)]
+            spikes2 = spikes2[np.isfinite(spikes2)]
 
-        # align to first spike
-        spikes1 = spikes1 - spikes1[0]
-        spikes2 = spikes2 - spikes2[0]
+            # align to first spike
+            spikes1 = spikes1 - spikes1[0]
+            spikes2 = spikes2 - spikes2[0]
 
-        # remove the transient
-        spikes1 = spikes1[spikes1 > transient_length] - transient_length
-        spikes2 = spikes2[spikes2 > transient_length] - transient_length
+            # remove the transient
+            spikes1 = spikes1[spikes1 > transient_length] - transient_length
+            spikes2 = spikes2[spikes2 > transient_length] - transient_length
 
-        # limit the duration
-        spikes1 = spikes1[spikes1 < target_length]
-        spikes2 = spikes2[spikes2 < target_length]
+            # limit the duration
+            spikes1 = spikes1[spikes1 < target_length]
+            spikes2 = spikes2[spikes2 < target_length]
 
-        # align second spike train to the end of the first @LR
-        spikes2 = spikes2 + spikes1[-1]
+            # align second spike train to the end of the first @LR
+            spikes2 = spikes2 + spikes1[-1]
 
-        # assign the new coordinates (block) to xarray
-        new_block = f"merged_{df.iloc[0]['block']}_and_{df.iloc[1]['block']}"
-        spikes1.coords["block"] = new_block
-        spikes2.coords["block"] = new_block
-        spikes = xr.concat([spikes1, spikes2], dim="spiketimes")
+            # assign the new coordinates (block) to xarray
+            new_block = f"merged_{df.iloc[0]['block']}_and_{df.iloc[1]['block']}"
+            spikes1.coords["block"] = new_block
+            spikes2.coords["block"] = new_block
+            spikes = xr.concat([spikes1, spikes2], dim="spiketimes")
 
-        # create the new row, updating columns
-        new_row = df.iloc[0].copy()
-        new_row["spiketimes"] = spikes
-        new_row["block"] = new_block
-        new_row["num_spikes"] = len(spikes)
-        new_row["recording_length"] = (spikes[-1] - spikes[0]).values[()]
-        new_row["firing_rate"] = len(spikes) / new_row["recording_length"]
-        new_rows.append(new_row)
+            # create the new row, updating columns
+            new_row = df.iloc[0].copy()
+            new_row["spiketimes"] = spikes
+            new_row["block"] = new_block
+            new_row["num_spikes"] = len(spikes)
+            new_row["recording_length"] = (spikes[-1] - spikes[0]).values[()]
+            new_row["firing_rate"] = len(spikes) / new_row["recording_length"]
+            new_rows.append(new_row)
+
+        except IndexError:
+            # if the unit has bad spike times or is shorter than our target lengths...
+            # log.debug(f"Unit {df.iloc[0]['unit_id']} could not be merged.")
+            dropped_units += 1
+            continue
 
     res_df = pd.DataFrame(new_rows)
     log.debug(
@@ -595,10 +550,149 @@ def merge_blocks(meta_df, target_length=1080, transient_length=360, inplace=True
         f" {len(res_df['unit_id'].unique())} units remained."
     )
 
-    meta_df = pd.concat([meta_df, res_df])
-    meta_df.reset_index(inplace=True, drop=True)
+    temp_df = pd.concat([temp_df, res_df])
+    temp_df.reset_index(inplace=True, drop=True)
+
+    return temp_df
+
+
+# ------------------------------------------------------------------------------ #
+# pandas dataframe realted helpers
+# ------------------------------------------------------------------------------ #
+
+
+def load_metrics(meta_df, data_dir, inplace=False, csvs=None, cols=None):
+    """
+    Load metrics from the Allen Institute csv files,
+    (brain_observatory_1.1_analysis_metrics.csv and
+    functional_connectivity_analysis_metrics.csv)
+
+    # Parameters
+    - meta_df : dataframe holding the metadata, with at least a column "unit_id"
+    - data_dir : directory holding the csv files
+    - inplace : if True, modify the dataframe in place. Otherwise, return a copy.
+    - csvs : list of csv filenames to load. default : None, standard file names
+    - cols : list of columns to load.
+        default : None -> ["g_dsi_dg", "image_selectivity_ns", "mod_idx_dg"]
+
+    # Notes
+    - focus is on numerical columns of the csv.
+        non-numeric types not tested.
+    """
+
+    assert "unit_id" in meta_df.columns, "unit_id column missing, try `reset_index()`?"
+
+    if not inplace:
+        meta_df = meta_df.copy()
+
+    if csvs is None:
+        csvs = [
+            "brain_observatory_unit_metrics_filtered.csv",
+            "functional_connectivity_analysis_metrics.csv",
+        ]
+
+    # load dataframes. we only need columns for stimulus selectivity
+    if cols is None:
+        cols = ["g_dsi_dg", "image_selectivity_ns", "mod_idx_dg"]
+
+    loaded_dfs = []
+    loaded_csvs = []
+    for csv in csvs:
+        csv_path = os.path.abspath(os.path.join(data_dir, csv))
+        df = _load_metrics_from_csv(csv_path, cols=cols)
+        log.debug(f"Loaded columns {df.columns.to_list()} from {csv_path}")
+        loaded_dfs.append(df)
+        loaded_csvs.append(csv_path)
+
+    # some sanity checks
+    cols_in_multiple_dfs = []
+    for col in cols:
+        dfs_with_col = [df for df in loaded_dfs if col in df.columns]
+        if len(dfs_with_col) == 0:
+            raise ValueError(f"Column {col} not found in any of the loaded dataframes.")
+        elif len(dfs_with_col) > 1:
+            cols_in_multiple_dfs.append(col)
+            log.info(f"Column {col} found in multiple dataframes.")
+
+        if col in meta_df.columns and meta_df[col].isfinite().sum() > 0:
+            raise ValueError(f"Column {col} already exists in meta_df, and has values.")
+
+        meta_df[col] = np.nan
+
+    # merge the dataframes, by unit_id. units likely occur multiple times in meta_df.
+    # merging can be finicky, doing this manually may a bit slower but should be safe
+    cols_copied = []
+    for idx, df in enumerate(loaded_dfs):
+        if len(df.columns) == 1 or len(df) == 0:
+            # only unit_id or no rows
+            continue
+        same_units = meta_df["unit_id"].isin(df["unit_id"])  # not unique units but rows
+        log.debug(f"Matched {same_units.sum()} rows from meta_df in {loaded_csvs[idx]}")
+
+        # columns of interest, for this dataframe
+        cois = [c for c in cols if c in df.columns]
+        skip = [c for c in cois if c in cols_copied]
+        if len(skip) > 0:
+            log.info(
+                f"2nd occurence of cols {skip}, ignoring values from {loaded_csvs[idx]}"
+            )
+        cois = [c for c in cois if c not in skip]
+
+        if len(cois) > 0:
+            for unit in meta_df["unit_id"].unique():
+                if unit in df["unit_id"].values:
+                    meta_df.loc[meta_df["unit_id"] == unit, cois] = df.loc[
+                        df["unit_id"] == unit, cois
+                    ].values
+
+        cols_copied.extend(cois)
+
+    for col in cols:
+        if len(meta_df[col].dropna()) == 0:
+            log.warning(f"Column {col} only has NaNs after merging.")
 
     return meta_df
+
+
+def strict_merge_dfs_by_index(left, right):
+    """
+    Merge two columns of two similar dataframes, by index.
+    - length must match
+    - index must match (use `set_index()`)
+    - columns that exist in both frames are checked to hold the same values
+    """
+
+    if not left.index.names == right.index.names:
+        raise ValueError(
+            f"Indices left {left.index.names} and right {right.index.names} do not match."
+            " Try `set_index()` to match them."
+        )
+
+    assert left.index.is_unique, "Indices should be unique"
+    assert right.index.is_unique, "Indices should be unique"
+
+    log.debug(
+        f"left length before data frame merge: {len(left)}, right length: {len(right)}."
+        " They should match."
+    )
+
+    # make sure the index order is the same:
+    right = right.reindex(left.index)
+
+    # merge the dataframes
+    cols_to_copy = right.columns.difference(left.columns)
+    cols_redundant = left.columns.intersection(right.columns)
+    log.debug(f"Copying columns: {cols_to_copy}")
+
+    # check the values in the other columns match:
+    for col in cols_redundant:
+        num_diffs = np.sum(left[col] != right[col])
+        if num_diffs > 0:
+            log.warning(f"Column {col} differs in {num_diffs} rows.")
+
+    merged_df = left.merge(right[cols_to_copy], left_index=True, right_index=True)
+
+    return merged_df
 
 
 # ------------------------------------------------------------------------------ #
