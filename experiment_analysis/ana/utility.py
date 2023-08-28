@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-11 18:20:03
+# @Last Modified: 2023-08-28 16:30:29
 # ------------------------------------------------------------------------------ #
 
 
@@ -260,7 +260,7 @@ def load_session(
         return _session_dict_to_df(session_dict)
 
 
-def load_spikes(meta_df):
+def load_spikes(meta_df, format="numpy"):
     """
     After filtering the global index for desired untis / criteria,
     provide the filtered meta dataframe here, to load spiketimes as xarray,
@@ -275,15 +275,21 @@ def load_spikes(meta_df):
 
     # Parameters
     meta_df (pd.DataFrame): filtered meta dataframe
+    format (str): "numpy" or "xarray".
+        if "xarray", the spiketimes are loaded as xarray.DataArray and
+        have dimensions (session, stimulus, block, spiketimes).
+        with "numpy", you get a simple flat 1d array of the spiketimes.
 
     # Returns
     df : pd.DataFrame
         - same rows as meta_df, but with an additional column (object)
-            `spiketimes` containing the spiketimes as xr.DataArray
+            `spiketimes` containing the spiketimes as xr.DataArray or np array
         - the contained xarray.DataArray have dimensions:
             (session, stimulus, block, spiketimes)
 
-
+    # Notes
+    - this does NOT set the `invalid_spiketimes_check` to `SUCCESS`. Some sessions
+        contain `ERR_INVALID_TIMES`, which we return as is.
     """
 
     # lessons learned: tried to return a single xarray for this, with dimensions:
@@ -318,7 +324,6 @@ def load_spikes(meta_df):
     )
 
     # create an empty datarray with our known coordinates
-
     num_rows = 0
 
     for fdx, file in enumerate(tqdm(files, desc="Loading spikes for sessions")):
@@ -337,10 +342,30 @@ def load_spikes(meta_df):
 
                     # assign data to df, and update the num_spikes column
                     arr = da.sel(unit_id=unit)
-                    if len(arr.squeeze().shape) != 1:
+                    squeezed = arr.squeeze()
+                    if len(squeezed.shape) != 1:
                         log.warning("spiketimes should have one variable dimension")
-                    res_df.loc[index, "spiketimes"] = arr
-                    res_df.loc[index, "num_spikes"] = np.isfinite(arr).sum().item()
+
+                    num_spikes = np.isfinite(squeezed).sum().item()
+                    res_df.loc[index, "num_spikes"] = num_spikes
+                    if num_spikes > 1:
+                        res_df.loc[index, "recording_length"] = (
+                            squeezed[num_spikes - 1] - squeezed[0]
+                        ).item()
+                    else:
+                        res_df.loc[index, "recording_length"] = 0.0
+
+                    if format == "xarray":
+                        res_df.at[index, "spiketimes"] = arr
+                    elif format == "numpy":
+                        # we use the .at[] method instead of .loc[] to be able to set
+                        # cells to iterables.
+                        # https://stackoverflow.com/questions/13842088/set-value-for-particular-cell-in-pandas-dataframe-using-index
+                        res_df.at[index, "spiketimes"] = arr.values.flatten()
+                    else:
+                        raise ValueError(
+                            f"Unknown format {format}, use 'xarray' or 'numpy'"
+                        )
 
                     num_rows += 1
 
@@ -352,24 +377,20 @@ def load_spikes(meta_df):
     return res_df
 
 
-def default_filter(
-    meta_df, target_length=1080, transient_length=360, trim=True, inplace=False
-):
+def default_filter(meta_df, trim=True, inplace=False):
     """
     Apply our default set of quality controls to the metadata frame.
 
     # Parameters
     meta_df: the metadata dataframe
-    target_length: the target length for recording duration, in seconds
-        required duration for stimuli with two blocks is 0.5 target_length for each block
-    transient_length: in seconds, added to target_length (to account for changes at the
-        beginning of each block)
+    min_rec_len: in seconds
+        rows where the `recording_length` column is less than this get `ERR_REC_LEN`
+    inplace : default False, returning a copy.
     trim : if True (default)
         remove rows that failed the quality checks.
         to get the full-length dataframe, set to False, and
         this will update the `invalid_spiketimes_check` column. Then you can query like:
         `meta_df.query("invalid_spiketimes_check == 'SUCCESS'")`
-    inplace : if True, modify the dataframe in place. Otherwise, return a copy.
 
     # Returns
     meta_df: the modified dataframe
@@ -379,8 +400,12 @@ def default_filter(
     if not inplace:
         meta_df = meta_df.copy()
 
-    if not np.all(meta_df["invalid_spiketimes_check"] == "SUCCESS"):
-        log.warning("Some units already have invalid_spiketimes_check, we overwrite.")
+    _num_no_success = len(meta_df.query("invalid_spiketimes_check != 'SUCCESS'"))
+    if _num_no_success > 0:
+        log.warning(
+            f"{_num_no_success} rows already have values other than `SUCCESS` in the"
+            " `invalid_spiketimes_check`. We overwrite them."
+        )
         meta_df["invalid_spiketimes_check"] = "SUCCESS"
 
     def _num_good(df):
@@ -423,23 +448,13 @@ def default_filter(
     #         ] = "ERR_STATIONARITY"
     # log.debug(f"After stationarity check: {_num_good(meta_df)}")
 
-    # check the duration for single blocks
+    # duration
     idx = meta_df.query(
-        f"stimulus == 'spontaneous'"
-        + f" & recording_length < {0.9 * (target_length + transient_length)}"
-    ).index
-    meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
-
-    # find stimuli that have two different blocks:
-    stims_with_two_blocks = []
-    for stim in meta_df["stimulus"].unique():
-        if len(meta_df.query(f"stimulus == '{stim}'")["block"].unique()) > 1:
-            stims_with_two_blocks.append(stim)
-
-    # check total duration of two-block stimuli
-    idx = meta_df.query(
-        f"stimulus in {stims_with_two_blocks}"
-        + f" & recording_length < {0.9 * (target_length / 2 + transient_length)}"
+        # we calculated recording durations from first to last spike.
+        # FC are around ~900 seconds, BO ~600, and we allow ~30 sec tolerance
+        f"(stimulus == 'spontaneous' & recording_length < 870) |"
+        + f"(stimulus == 'natural_movie_one_more_repeats' & recording_length < 870) |"
+        + f"(stimulus == 'natural_movie_three' & recording_length < 570)",
     ).index
     meta_df.loc[idx, "invalid_spiketimes_check"] = "ERR_REC_LEN"
     log.debug(f"After minmum-duration check: {_num_good(meta_df)}")
@@ -448,9 +463,7 @@ def default_filter(
     for stim in meta_df["stimulus"].unique():
         num_total = len(meta_df.query(f"stimulus == '{stim}'"))
         num_bad = len(
-            meta_df.query(
-                f"stimulus == '{stim}' & invalid_spiketimes_check != 'SUCCESS'"
-            )
+            meta_df.query(f"stimulus == '{stim}' & invalid_spiketimes_check != 'SUCCESS'")
         )
         log.debug(f"Excluded {num_bad} / {num_total} units for stimulus {stim}")
 
@@ -460,19 +473,47 @@ def default_filter(
     return meta_df
 
 
-def merge_blocks(temp_df, target_length=1080, transient_length=360, inplace=True):
+def merge_blocks(
+    meta_df,
+    transient_length=60,
+    max_len_per_block=600,
+    min_len_per_block=570,
+    inplace=False,
+):
     """
     Merge the spiking data from two blocks (for those stimuli that have two blocks).
 
-    best do this after filtering etc.
-
-    # Returns
-    meta_df: a new dataframe. to combine with the original one use
-        `pd.concat([meta_df, meta_df2])`
-
     # Parameters
     meta_df: the metadata dataframe, data already loaded, checks performed.
-        Also, we expect only two-block stimuli to be present.
+    transient_length: in seconds
+        we discard all spikes within the first `transient_length` seconds after the
+        first found spike.
+    max_len_per_block: in seconds
+        the maximum length of a single block (before merging).
+        spikes that occur later than (max_len_per_block)
+        after the first spike are discarded. can be np.inf
+    min_len_per_block: in seconds
+        (unmerged) blocks where the time-difference between first and last spike
+        is less than this are discarded.
+
+    # Returns
+    meta_df: dataframe with new rows for the merged blocks.
+        if `inplace=True` we modify the
+
+    # Example
+    with our defaults
+    ```
+    transient_length=60,
+    max_len_per_block=600,
+    min_len_per_block=570,
+    ```
+    the expected resulting duration for the merged block is
+    2 * (600 - 60) = 1080 seconds.
+
+    # Todo:
+    make the prepare_spikes function an argument, instead of hard-coding the
+    filtering again
+
     """
 
     new_rows = []
@@ -481,15 +522,15 @@ def merge_blocks(temp_df, target_length=1080, transient_length=360, inplace=True
     if not inplace:
         meta_df = meta_df.copy()
 
-    assert "spiketimes" in temp_df.columns, "call `load_spikes` first"
+    assert "spiketimes" in meta_df.columns, "call `load_spikes` first"
 
     try:
-        groupby = temp_df.groupby(["session", "stimulus", "unit_id"])
+        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
     except ValueError:
         # this happens when the index is set to unit_id (and unit_id is still a column)
         # resetting is not great, it will modify the outer df which seems unexpected.
-        temp_df = temp_df.reset_index(drop=True)
-        groupby = temp_df.groupby(["session", "stimulus", "unit_id"])
+        meta_df = meta_df.reset_index(drop=True)
+        groupby = meta_df.groupby(["session", "stimulus", "unit_id"])
 
     for df_idx, df in tqdm(groupby, desc="Merging blocks for units", total=len(groupby)):
         if len(df) == 1:
@@ -508,33 +549,49 @@ def merge_blocks(temp_df, target_length=1080, transient_length=360, inplace=True
             spikes1 = spikes1[np.isfinite(spikes1)]
             spikes2 = spikes2[np.isfinite(spikes2)]
 
+            # if one of the blocks is shorter than min_len_per_block, discard it
+            diff = np.nanmin([spikes1[-1] - spikes1[0], spikes2[-1] - spikes2[0]])
+            if diff < min_len_per_block:
+                dropped_units += 1
+                continue
+
             # align to first spike
             spikes1 = spikes1 - spikes1[0]
             spikes2 = spikes2 - spikes2[0]
+
+            # limit the duration
+            spikes1 = spikes1[spikes1 < max_len_per_block]
+            spikes2 = spikes2[spikes2 < max_len_per_block]
 
             # remove the transient
             spikes1 = spikes1[spikes1 > transient_length] - transient_length
             spikes2 = spikes2[spikes2 > transient_length] - transient_length
 
-            # limit the duration
-            spikes1 = spikes1[spikes1 < target_length]
-            spikes2 = spikes2[spikes2 < target_length]
-
-            # align second spike train to the end of the first @LR
+            # align second spike train to the end of the first
             spikes2 = spikes2 + spikes1[-1]
 
             # assign the new coordinates (block) to xarray
             new_block = f"merged_{df.iloc[0]['block']}_and_{df.iloc[1]['block']}"
-            spikes1.coords["block"] = new_block
-            spikes2.coords["block"] = new_block
-            spikes = xr.concat([spikes1, spikes2], dim="spiketimes")
+            try:
+                # xarray
+                spikes1.coords["block"] = new_block
+                spikes2.coords["block"] = new_block
+                spikes = xr.concat([spikes1, spikes2], dim="spiketimes")
+            except AttributeError:
+                # 1d numpy
+                assert len(spikes1.shape) == 1
+                assert len(spikes2.shape) == 1
+                spikes = np.concatenate([spikes1, spikes2])
 
             # create the new row, updating columns
             new_row = df.iloc[0].copy()
             new_row["spiketimes"] = spikes
             new_row["block"] = new_block
             new_row["num_spikes"] = len(spikes)
-            new_row["recording_length"] = (spikes[-1] - spikes[0]).values[()]
+            try:
+                new_row["recording_length"] = (spikes[-1] - spikes[0]).values[()]
+            except:
+                new_row["recording_length"] = spikes[-1] - spikes[0]
             new_row["firing_rate"] = len(spikes) / new_row["recording_length"]
             new_rows.append(new_row)
 
@@ -546,14 +603,81 @@ def merge_blocks(temp_df, target_length=1080, transient_length=360, inplace=True
 
     res_df = pd.DataFrame(new_rows)
     log.debug(
-        f"Did not merge {dropped_units} units (only found in one block)."
+        f"Did not merge {dropped_units} units (failed criteria)."
         f" {len(res_df['unit_id'].unique())} units remained."
     )
 
-    temp_df = pd.concat([temp_df, res_df])
-    temp_df.reset_index(inplace=True, drop=True)
+    if inplace:
+        meta_df = pd.concat([meta_df, res_df])
+    else:
+        meta_df = res_df
+    meta_df.reset_index(inplace=True, drop=True)
 
-    return temp_df
+    return meta_df
+
+
+def prepare_spike_times(spikes, stimulus: str):
+    """
+    applies our default spike-time preprocessing, which depends
+    on the experiment type (stimulus).
+
+    'nat movie three' (BO) require 570, remove 60, limit output duration to 540
+    'more repeats' (FC) require 870, remove 60, limit output duration to 840
+    'spont' (FC) require 870, remove first 60, limit output duration to 840
+
+    # Parameters
+    spikes : np.ndarray or xarray.DataArray
+    stimulus : str,
+        one of "spontaneous", "natural_movie_one_more_repeats", "natural_movie_three"
+
+    # Returns
+    a flat 1d numpy array or an xarray holding the spiketimes.
+    if the checks fail, the array has length 0.
+
+    # Example
+    for quick passing a row:
+    ```
+    utl.prepare_spike_times(*meta_df.iloc[0][["spiketimes", "stimulus"]])
+    ```
+    """
+
+    if stimulus.lower() in ["spontaneous", "natural_movie_one_more_repeats"]:
+        # Functional connectivity
+        min_len = 870
+        max_output_len = 840
+        transient_length = 60
+    elif stimulus.lower() == "natural_movie_three":
+        # Brain observatory
+        min_len = 570
+        max_output_len = 540
+        transient_length = 60
+    else:
+        raise ValueError(
+            f"Unknown stimulus {stimulus}, known values are: 'spontaneous',"
+            " 'natural_movie_one_more_repeats', 'natural_movie_three'"
+        )
+
+    spikes = spikes.copy().squeeze()
+
+    # remove the nan-padding
+    spikes = spikes[np.isfinite(spikes)]
+
+    # if one of the blocks is shorter than min_len_per_block, discard it
+    if spikes[-1] - spikes[0] < min_len:
+        # empty array of same datatype
+        return spikes[0:0]
+
+    # align to first spike
+    spikes = spikes - spikes[0]
+
+    # remove the transient
+    spikes = spikes[spikes > transient_length] - transient_length
+
+    # limit the duration: note in the merge-block function we first check duration
+    # and then cut the transient!
+    spikes = spikes[spikes < max_output_len]
+
+    return spikes
 
 
 # ------------------------------------------------------------------------------ #
@@ -843,7 +967,11 @@ def save_dataframe(meta_df, path, cols_to_skip=None):
         cols_to_skip = []
     cols_to_save = [c for c in meta_df.columns if c not in cols_to_skip]
     df_to_save = meta_df[cols_to_save]
-    df_to_save.to_hdf(path, key="meta_df", mode="w", complib="zlib", complevel=9)
+    try:
+        df_to_save.to_feather(path, key="meta_df", mode="w", complib="zlib", complevel=9)
+    except Exception as e:
+        log.debug(f"Saving dataframe failed, trying without compression {e}")
+        df_to_save.to_hdf(path, key="meta_df", mode="w")
 
 
 # ------------------------------------------------------------------------------ #
