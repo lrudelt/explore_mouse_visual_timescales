@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-28 16:30:29
+# @Last Modified: 2023-08-28 17:40:07
 # ------------------------------------------------------------------------------ #
 
 
@@ -663,7 +663,8 @@ def prepare_spike_times(spikes, stimulus: str):
     spikes = spikes[np.isfinite(spikes)]
 
     # if one of the blocks is shorter than min_len_per_block, discard it
-    if spikes[-1] - spikes[0] < min_len:
+
+    if (len(spikes) < 1) or (spikes[-1] - spikes[0] < min_len):
         # empty array of same datatype
         return spikes[0:0]
 
