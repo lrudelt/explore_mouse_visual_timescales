@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-08-28 17:40:07
+# @Last Modified: 2023-08-29 11:36:32
 # ------------------------------------------------------------------------------ #
 
 
@@ -713,12 +713,16 @@ def load_metrics(meta_df, data_dir, inplace=False, csvs=None, cols=None):
     if csvs is None:
         csvs = [
             "brain_observatory_unit_metrics_filtered.csv",
-            "functional_connectivity_analysis_metrics.csv",
+            # "functional_connectivity_analysis_metrics.csv",
         ]
 
     # load dataframes. we only need columns for stimulus selectivity
     if cols is None:
-        cols = ["g_dsi_dg", "image_selectivity_ns", "mod_idx_dg"]
+        cols = [
+            "g_dsi_dg", # direction selectivity
+            "image_selectivity_ns", # image selectivity
+            "mod_idx_dg", # modulation
+        ]
 
     loaded_dfs = []
     loaded_csvs = []
