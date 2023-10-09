@@ -17,8 +17,7 @@ dependencies:
   - scipy
   - h5py
   - zarr
-  - xarray=2023.1.0
-  # - pandas=1.5.3
+  - xarray # update for pandas
   - pandas=2.0.3
   - pytables
   - matplotlib
@@ -38,6 +37,7 @@ dependencies:
   - pyfftw=0.13 # there might be a bug in the pyfftw _conda_ package: https://github.com/pyFFTW/pyFFTW/issues/294, but we do not use the fft in the main code, anymore. thus, minor issue.
   - pip
   - pip:
+    - watermark
     - python-benedict
     - git+https://github.com/Priesemann-Group/mrestimator.git@v0.1.9
     - git+https://github.com/Priesemann-Group/hdestimator.git@python_wrapper_numba

@@ -22,7 +22,7 @@ matplotlib.rcParams["legend.frameon"] = True
 matplotlib.rcParams["axes.spines.right"] = False
 matplotlib.rcParams["axes.spines.top"] = False
 matplotlib.rcParams["figure.figsize"] = [3.4, 2.7]  # APS single column
-matplotlib.rcParams["figure.dpi"] = 150
+matplotlib.rcParams["figure.dpi"] = 200
 matplotlib.rcParams["savefig.facecolor"] = (0.9, 1.0, 1.0, 0.0)  # transparent figure bg
 matplotlib.rcParams["axes.facecolor"] = (0.9, 1.0, 1.0, 0.0)
 
@@ -639,7 +639,7 @@ def fancy_violins(
         quantiles = np.quantile(samples, [0.025, 0.975])
 
         log.debug(
-            f"{cat} median: {median:.2f} quantiles: {quantiles} from"
+            f"{cat} median: {median:.4f} quantiles: {quantiles} from"
             f" {len(samples)} samples of length {len(df_for_cat)}"
         )
 
