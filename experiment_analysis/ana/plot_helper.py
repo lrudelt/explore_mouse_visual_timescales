@@ -152,9 +152,9 @@ def panel_areas_grouped(df, obs, ax=None):
     else:
         fig = ax.get_figure()
 
-    stimulti = df["stimulus"].unique()
+    stimuli = df["stimulus"].unique()
     blocks = df["block"].unique()
-    log.info(f"grouped {obs} for {stimulti} {blocks} with {len(df)} rows")
+    log.info(f"grouped {obs} for {stimuli} {blocks} with {len(df)} rows")
 
     # ------------------------------------------------------------------------------ #
     # plot markers

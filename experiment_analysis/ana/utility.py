@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2023-10-09 16:59:39
+# @Last Modified: 2024-03-23 20:37:05
 # ------------------------------------------------------------------------------ #
 
 
@@ -475,44 +475,18 @@ def default_filter(meta_df, trim=True, inplace=False):
 
 def merge_blocks(
     meta_df,
-    transient_length=60,
-    max_len_per_block=600,
-    min_len_per_block=570,
     inplace=False,
 ):
     """
     Merge the spiking data from two blocks (for those stimuli that have two blocks).
+    Call `prepare_spike_times` before this!
 
     # Parameters
     meta_df: the metadata dataframe, data already loaded, checks performed.
-    transient_length: in seconds
-        we discard all spikes within the first `transient_length` seconds after the
-        first found spike.
-    max_len_per_block: in seconds
-        the maximum length of a single block (before merging).
-        spikes that occur later than (max_len_per_block)
-        after the first spike are discarded. can be np.inf
-    min_len_per_block: in seconds
-        (unmerged) blocks where the time-difference between first and last spike
-        is less than this are discarded.
 
     # Returns
-    meta_df: dataframe with new rows for the merged blocks.
-        if `inplace=True` we modify the
-
-    # Example
-    with our defaults
-    ```
-    transient_length=60,
-    max_len_per_block=600,
-    min_len_per_block=570,
-    ```
-    the expected resulting duration for the merged block is
-    2 * (600 - 60) = 1080 seconds.
-
-    # Todo:
-    make the prepare_spikes function an argument, instead of hard-coding the
-    filtering again
+    meta_df: dataframe that only holds the now merged blocks (inplace=False, default)
+        or the original frame with the new rows appended (inplace=True).
 
     """
 
@@ -549,25 +523,10 @@ def merge_blocks(
             spikes1 = spikes1[np.isfinite(spikes1)]
             spikes2 = spikes2[np.isfinite(spikes2)]
 
-            # if one of the blocks is shorter than min_len_per_block, discard it
-            diff = np.nanmin([spikes1[-1] - spikes1[0], spikes2[-1] - spikes2[0]])
-            if diff < min_len_per_block:
-                dropped_units += 1
-                continue
-
-            # align to first spike
-            spikes1 = spikes1 - spikes1[0]
-            spikes2 = spikes2 - spikes2[0]
-
-            # limit the duration
-            spikes1 = spikes1[spikes1 < max_len_per_block]
-            spikes2 = spikes2[spikes2 < max_len_per_block]
-
-            # remove the transient
-            spikes1 = spikes1[spikes1 > transient_length] - transient_length
-            spikes2 = spikes2[spikes2 > transient_length] - transient_length
-
             # align second spike train to the end of the first
+            # Note: in prepare_spike_times we align to zero before removing
+            # the transient period. Hence, we can merge the blocks here
+            # without accidentally creating simultaneous spikes.
             spikes2 = spikes2 + spikes1[-1]
 
             # assign the new coordinates (block) to xarray

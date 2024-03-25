@@ -10,6 +10,7 @@ paper_plots/data/allen_neuron_data/*
 paper_plots/data/allen_raw_data/*
 paper_plots/data/stats/*
 paper_plots/code/dirs.yaml
+experiment_analysis/figs/*
 
 dat
 branching_network/fig/*
