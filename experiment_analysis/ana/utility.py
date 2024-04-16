@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-03-23 20:37:05
+# @Last Modified: 2024-04-16 11:58:02
 # ------------------------------------------------------------------------------ #
 
 
@@ -609,6 +609,10 @@ def prepare_spike_times(spikes, stimulus: str):
         # Brain observatory
         min_len = 570
         max_output_len = 540
+        transient_length = 60
+    elif stimulus.lower() == "spontaneous_for_merged":
+        min_len = 870*2
+        max_output_len = 840*2
         transient_length = 60
     else:
         raise ValueError(
