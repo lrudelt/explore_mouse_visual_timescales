@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-04-27 10:06:01
+# @Last Modified: 2024-04-27 10:14:50
 # ------------------------------------------------------------------------------ #
 
 
@@ -680,7 +680,7 @@ def prepare_spike_times(spikes, stimulus: str):
 
 
 # ------------------------------------------------------------------------------ #
-# pandas dataframe realted helpers
+# pandas dataframe related helpers
 # ------------------------------------------------------------------------------ #
 
 
@@ -821,6 +821,30 @@ def strict_merge_dfs_by_index(left, right):
 
     return merged_df
 
+# ------------------------------------------------------------------------------ #
+# hierarchy score and structures
+# ------------------------------------------------------------------------------ #
+
+def add_structure_and_hierarchy_scores(meta_df):
+    """Add strucuter & hierarchy score columns.
+    Drops LGN and LP, returns a copy of meta_df.
+    """
+
+    df = meta_df.copy()
+
+    # we use a different naming convention, add a column for that
+    if "structure_name" not in df.columns:
+        df["structure_name"] = df["ecephys_structure_acronym"].apply(
+            lambda x: structure_names[x]
+        )
+
+    # check that all provided rows also have a hierarchy score
+    assert np.all(s in hierarchy_scores.keys() for s in df["structure_name"].unique())
+    if "LGN" in df["structure_name"].unique() or "LP" in df["structure_name"].unique():
+        log.info("dropping LGN and LP to focus on cortical hierarchy")
+        df = df.query("structure_name not in ['LGN', 'LP']")
+
+    return df
 
 # ------------------------------------------------------------------------------ #
 # helpers for session handling etc.
