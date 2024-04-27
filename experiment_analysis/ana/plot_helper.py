@@ -33,25 +33,13 @@ import pandas as pd
 import scipy.stats
 from itertools import combinations
 
+from . utility import hierarchy_scores, structure_names, area_groups
+
 log = logging.getLogger("plot_helper")
 
 # ------------------------------------------------------------------------------ #
 # lookup tables
 # ------------------------------------------------------------------------------ #
-
-
-# hierarchy score from
-# https://github.com/AllenInstitute/neuropixels_platform_paper/blob/master/Figure3/Figure3.py
-hierarchy_scores = {
-    "V1": -0.357,
-    "LM": -0.093,
-    "RL": -0.059,
-    "AL": 0.152,
-    "PM": 0.327,
-    "AM": 0.441,
-    "LGN": -0.515,
-    "LP": 0.105,
-}
 
 structure_colors = {
     "V1": "#9467BD",
@@ -65,25 +53,6 @@ structure_colors = {
     "thalamus_grouped": "#999999",
     "V1_grouped": "#4C4C4C",
     "higher_grouped": "#4C4C4C",
-}
-
-
-structure_names = {
-    # we need a mapping from ephys acronyms to the names we use in the paper
-    "VISp": "V1",
-    "VISl": "LM",
-    "VISrl": "RL",
-    "VISal": "AL",
-    "VISpm": "PM",
-    "VISam": "AM",
-    "LGd": "LGN",
-    "LP": "LP",
-}
-
-area_groups = {
-    "thalamus_grouped": ["LGN", "LP"],
-    "V1_grouped": ["V1"],
-    "higher_grouped": ["LM", "RL", "AL", "PM", "AM"],
 }
 
 y_labels = {

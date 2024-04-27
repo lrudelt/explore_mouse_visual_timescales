@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-04-16 11:58:02
+# @Last Modified: 2024-04-27 10:06:01
 # ------------------------------------------------------------------------------ #
 
 
@@ -33,6 +33,42 @@ from humanize import naturalsize
 warnings.filterwarnings("ignore")
 
 # sys.path.append("../")
+
+
+# ------------------------------------------------------------------------------ #
+# lookup tables
+# ------------------------------------------------------------------------------ #
+
+# hierarchy score from
+# https://github.com/AllenInstitute/neuropixels_platform_paper/blob/master/Figure3/Figure3.py
+hierarchy_scores = {
+    "V1": -0.357,
+    "LM": -0.093,
+    "RL": -0.059,
+    "AL": 0.152,
+    "PM": 0.327,
+    "AM": 0.441,
+    "LGN": -0.515,
+    "LP": 0.105,
+}
+
+structure_names = {
+    # we need a mapping from ephys acronyms to the names we use in the paper
+    "VISp": "V1",
+    "VISl": "LM",
+    "VISrl": "RL",
+    "VISal": "AL",
+    "VISpm": "PM",
+    "VISam": "AM",
+    "LGd": "LGN",
+    "LP": "LP",
+}
+
+area_groups = {
+    "thalamus_grouped": ["LGN", "LP"],
+    "V1_grouped": ["V1"],
+    "higher_grouped": ["LM", "RL", "AL", "PM", "AM"],
+}
 
 # ------------------------------------------------------------------------------ #
 # Loading of hdf5 data, maybe we put this into its own file.
