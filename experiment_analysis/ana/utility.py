@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-04-27 10:14:50
+# @Last Modified: 2024-05-01 20:31:25
 # ------------------------------------------------------------------------------ #
 
 
@@ -720,6 +720,7 @@ def load_metrics(meta_df, data_dir, inplace=False, csvs=None, cols=None):
             "g_dsi_dg", # direction selectivity
             "image_selectivity_ns", # image selectivity
             "mod_idx_dg", # modulation
+            "on_screen_rf", # was receptive field on screen?
         ]
 
     loaded_dfs = []
@@ -843,6 +844,8 @@ def add_structure_and_hierarchy_scores(meta_df):
     if "LGN" in df["structure_name"].unique() or "LP" in df["structure_name"].unique():
         log.info("dropping LGN and LP to focus on cortical hierarchy")
         df = df.query("structure_name not in ['LGN', 'LP']")
+
+    df["hierarchy_score"] = df["structure_name"].apply(lambda x: hierarchy_scores[x])
 
     return df
 
