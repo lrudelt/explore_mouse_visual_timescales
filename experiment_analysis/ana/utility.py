@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-05-01 20:31:25
+# @Last Modified: 2024-05-02 19:54:38
 # ------------------------------------------------------------------------------ #
 
 
@@ -841,9 +841,6 @@ def add_structure_and_hierarchy_scores(meta_df):
 
     # check that all provided rows also have a hierarchy score
     assert np.all(s in hierarchy_scores.keys() for s in df["structure_name"].unique())
-    if "LGN" in df["structure_name"].unique() or "LP" in df["structure_name"].unique():
-        log.info("dropping LGN and LP to focus on cortical hierarchy")
-        df = df.query("structure_name not in ['LGN', 'LP']")
 
     df["hierarchy_score"] = df["structure_name"].apply(lambda x: hierarchy_scores[x])
 
