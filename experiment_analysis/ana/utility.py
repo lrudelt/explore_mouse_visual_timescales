@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-05-02 19:54:38
+# @Last Modified: 2024-05-10 16:07:02
 # ------------------------------------------------------------------------------ #
 
 
@@ -762,16 +762,28 @@ def load_metrics(meta_df, data_dir, inplace=False, csvs=None, cols=None):
         skip = [c for c in cois if c in cols_copied]
         if len(skip) > 0:
             log.info(
-                f"2nd occurence of cols {skip}, ignoring values from {loaded_csvs[idx]}"
+                f"2nd occurence of cols {skip}, comparing with values from {loaded_csvs[idx]}"
             )
-        cois = [c for c in cois if c not in skip]
 
         if len(cois) > 0:
             for unit in meta_df["unit_id"].unique():
-                if unit in df["unit_id"].values:
-                    meta_df.loc[meta_df["unit_id"] == unit, cois] = df.loc[
-                        df["unit_id"] == unit, cois
-                    ].values
+                if not unit in df["unit_id"].values:
+                    continue
+                # meta_df.loc[meta_df["unit_id"] == unit, cois] = df.loc[
+                #     df["unit_id"] == unit, cois
+                # ].values
+                for c in cois:
+                    new_value = df.loc[df["unit_id"] == unit, c].values
+                    old_value = meta_df.loc[meta_df["unit_id"] == unit, c].values
+
+                    # keep new value if it makes sense
+                    if not pd.isna(new_value):
+                        meta_df.loc[meta_df["unit_id"] == unit, c] = new_value
+
+                    # but check with old value.
+                    if not pd.isna(old_value):
+                        if old_value != new_value:
+                            log.warning(f"Inconsistency found in column {c} for unit {unit}")
 
         cols_copied.extend(cois)
 
