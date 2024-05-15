@@ -13,8 +13,8 @@ dependencies:
   - dask-jobqueue
   - tqdm
   - enlighten
-  - numpy
-  - scipy
+  - numpy=1.24.4
+  - scipy=1.13.0
   - h5py
   - zarr
   - xarray # update for pandas
@@ -24,14 +24,14 @@ dependencies:
   - seaborn=0.11.2 # pauls split violins only work with version < 0.12
   - palettable
   - networkx
-  # - numba=0.56.4 # they plan to depricate untyped lists, which we use.
   - numba=0.57.1 # they plan to depricate untyped lists, which we use.
   - ipywidgets
   - ipython
   - jupyter
   - jupyterlab
-  - pymc # add version
-  - arviz # add version
+  - pymc=5.14.0
+  - nutpie=0.10.0
+  - arviz=0.18.0
   - humanize
   - pytest
   - pyfftw=0.13 # there might be a bug in the pyfftw _conda_ package: https://github.com/pyFFTW/pyFFTW/issues/294, but we do not use the fft in the main code, anymore. thus, minor issue.
@@ -42,4 +42,4 @@ dependencies:
     - git+https://github.com/Priesemann-Group/mrestimator.git@v0.1.9
     - git+https://github.com/Priesemann-Group/hdestimator.git@python_wrapper_numba
     - git+https://github.com/pSpitzner/bitsandbobs
-    - ipy_dict_hierarchy # relies readline, might fail on windows
+    - ipy_dict_hierarchy # relies on readline, might fail on windows

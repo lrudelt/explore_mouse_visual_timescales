@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-05-10 16:07:02
+# @Last Modified: 2024-05-15 10:41:49
 # ------------------------------------------------------------------------------ #
 
 
@@ -765,20 +765,23 @@ def load_metrics(meta_df, data_dir, inplace=False, csvs=None, cols=None):
                 f"2nd occurence of cols {skip}, comparing with values from {loaded_csvs[idx]}"
             )
 
-        if len(cois) > 0:
-            for unit in meta_df["unit_id"].unique():
-                if not unit in df["unit_id"].values:
-                    continue
-                # meta_df.loc[meta_df["unit_id"] == unit, cois] = df.loc[
-                #     df["unit_id"] == unit, cois
-                # ].values
-                for c in cois:
-                    new_value = df.loc[df["unit_id"] == unit, c].values
-                    old_value = meta_df.loc[meta_df["unit_id"] == unit, c].values
+        if len(cois) == 0:
+            continue
 
-                    # keep new value if it makes sense
+        for unit in meta_df["unit_id"].unique():
+            if not unit in df["unit_id"].values:
+                continue
+
+            meta_df_rows = meta_df[meta_df["unit_id"] == unit]
+
+            for c in cois:
+                new_value = df.loc[df["unit_id"] == unit, c].values
+
+                for index in meta_df_rows.index:
+                    old_value = meta_df_rows.loc[index, c]
+
                     if not pd.isna(new_value):
-                        meta_df.loc[meta_df["unit_id"] == unit, c] = new_value
+                        meta_df.loc[index, c] = new_value
 
                     # but check with old value.
                     if not pd.isna(old_value):
