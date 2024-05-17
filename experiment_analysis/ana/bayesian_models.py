@@ -192,7 +192,18 @@ class LinearModel(ModelBase):
 class StructureGroupModel(ModelBase):
     def __init__(self, df, measure, name=""):
 
-        # this copies df, prepares and assigns self.df
+        df = df.copy()
+
+        # for the structure group model, we need to select data from higher cortical and thalamus, respectively.
+        # add a column each that is (1) if the neuron is in this group else (0)
+        df["is_higher_cortical"] = (
+            df["structure_name"].isin(["LM", "RL", "AL", "PM", "AM"]).astype("int")
+        )
+        df["is_thalamus"] = df["structure_name"].isin(["LGN", "LP"]).astype("int")
+
+        log.info(df["is_higher_cortical"].value_counts())
+        log.info(df["is_thalamus"].value_counts())
+
         df = self.prepare_data(df)
 
         # to model session-level details, we need a lookup row -> session_idx

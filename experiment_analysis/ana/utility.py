@@ -2,7 +2,7 @@
 # @Author:        F. Paul Spitzner
 # @Email:         paul.spitzner@ds.mpg.de
 # @Created:       2023-03-09 18:33:59
-# @Last Modified: 2024-05-15 10:41:49
+# @Last Modified: 2024-05-17 07:42:31
 # ------------------------------------------------------------------------------ #
 
 
@@ -793,6 +793,19 @@ def load_metrics(meta_df, data_dir, inplace=False, csvs=None, cols=None):
     for col in cols:
         if len(meta_df[col].dropna()) == 0:
             log.warning(f"Column {col} only has NaNs after merging.")
+
+    return meta_df
+
+def load_experiments(meta_df, data_dir, inplace=False, csv="sessions.csv"):
+    """helper to find which session was brain observatory or functional connectivity experiment
+    """
+    if not inplace:
+        meta_df = meta_df.copy()
+
+    data = pd.read_csv(os.path.join(data_dir, csv))
+
+    id_to_session_type = data.set_index('id')['session_type']
+    meta_df['session_type'] = meta_df['session'].map(id_to_session_type)
 
     return meta_df
 
