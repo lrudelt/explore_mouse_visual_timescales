@@ -101,7 +101,7 @@ class LinearModel(ModelBase):
         coords = {
             # we could use the real sessions of the data, but this makes it harder to index.
             "session": np.unique(session_idx),
-            "datapoint": df.index,
+            "datapoint": np.arange(len(df)),
         }
 
         super().__init__(name=name, model=None, coords=coords)
@@ -217,7 +217,7 @@ class StructureGroupModel(ModelBase):
         coords = {
             # we could use the real sessions of the data, but this makes it harder to index.
             "session": np.unique(session_idx),
-            "datapoint": df.index,
+            "datapoint": np.arange(len(df)),
         }
 
         super().__init__(name=name, model=None, coords=coords)
