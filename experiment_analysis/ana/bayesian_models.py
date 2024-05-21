@@ -33,14 +33,6 @@ class ModelBase(pm.Model):
         num_rows_after = len(df)
         log.info(f"dropped {num_rows_before - num_rows_after} rows due to inf/nans")
 
-        # keep precomputed mean and sd for log transforms around
-        self._log_sd = dict()
-        self._log_mean = dict()
-        for c in cols_to_trafo:
-            assert df[f"log_{c}"].isna().sum() == 0
-            self._log_sd[c] = df[f"log_{c}"].std()
-            self._log_mean[c] = df[f"log_{c}"].mean()
-
         # z-transfrom
         # -----------
         # and mean-centered & standardized according to Gelman: 1 / (2 * sd)
@@ -71,21 +63,9 @@ class ModelBase(pm.Model):
         self.df = df
         return self.df
 
-    # helper functions to go back and forth, we will use them in pymc to add deterministic variables
-    def f_transf_int(self, c, x):
-        res = np.exp(x * self._log_sd[c] + self._log_mean[c])
-        if c in ["tau_R", "tau_double"]:
-            res *= 1000
-        return res
-
-    def f_transf_int_inverse(self, c, x):
-        if c in ["tau_R", "tau_double"]:
-            x = np.divide(x, 1000)
-        return (np.log(x) - self._log_mean[c]) / self._log_sd[c]
-
 
 class LinearModel(ModelBase):
-    def __init__(self, df, measure, name=""):
+    def __init__(self, df, measure, noncentered=True, name=""):
 
         # this copies df, prepares and assigns self.df
         df = self.prepare_data(df)
@@ -113,53 +93,60 @@ class LinearModel(ModelBase):
         mu_slope = pm.Normal("mu_slope", mu=0.0, sigma=1.0)
         sigma_slope = pm.HalfCauchy("sigma_slope", beta=1.0)
 
-        session_intercept = pm.Normal(
-            "session_intercept",
-            mu=0.0,
-            sigma=1.0,
-            shape=num_sessions,
-            dims="session",
-        )
+        if noncentered is False:
+            session_intercept = pm.Normal(
+                "session_intercept",
+                mu=mu_intercept,
+                sigma=sigma_intercept,
+                shape=num_sessions,
+                dims="session",
+            )
 
-        session_slope = pm.Normal(
-            "session_slope",
-            mu=0.0,
-            sigma=1.0,
-            shape=num_sessions,
-            dims="session",
-        )
+            session_slope = pm.Normal(
+                "session_slope",
+                mu=mu_slope,
+                sigma=sigma_slope,
+                shape=num_sessions,
+                dims="session",
+            )
+        else:
+            # avoid funnel of hell
+            # https://twiecki.io/blog/2017/02/08/bayesian-hierchical-non-centered/
+            session_intercept_scaled = pm.Normal(
+                "session_intercept_scaled",
+                mu=0.0,
+                sigma=1.0,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_intercept = pm.Deterministic(
+                "session_intercept",
+                mu_intercept + session_intercept_scaled * sigma_intercept,
+                dims="session",
+            )
+
+            session_slope_scaled = pm.Normal(
+                "session_slope_scaled",
+                mu=0.0,
+                sigma=1.0,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_slope = pm.Deterministic(
+                "session_slope",
+                mu_slope + session_slope_scaled * sigma_slope,
+                dims="session",
+            )
 
         b_os_rf = pm.Normal("b_os_rf", mu=0.0, sigma=1.0)
         b_log_fr = pm.Normal("b_log_fr", mu=0.0, sigma=1.0)
 
-        # deterministic variables. we do not use them for furhter modeling, but they help visualizing.
-        pm.Deterministic(
-            "eff_session_slope",
-            mu_slope + session_slope * sigma_slope,
-            dims="session",
-        )
-        pm.Deterministic(
-            "eff_session_intercept",
-            mu_intercept + session_intercept * sigma_intercept,
-            dims="session",
-        )
-        pm.Deterministic(
-            "linear_fit",
-            self.f_transf_int(
-                measure,
-                mu_intercept + mu_slope * df["z_hierarchy_score"].values,
-            ),
-            dims="datapoint",
-        )
-
         # linear model
         yest = (
-            # global intercept
-            mu_intercept
             # session-level intercept. one for each sessions
-            + sigma_intercept * session_intercept[session_idx]
+            session_intercept[session_idx]
             # session-level slope x neuron hierarchy score
-            + (mu_slope + sigma_slope * session_slope[session_idx])
+            + session_slope[session_idx]
             * df["z_hierarchy_score"].values
             # per-unit terms
             + b_os_rf * df["on_screen_rf"].values
@@ -190,7 +177,7 @@ class LinearModel(ModelBase):
 
 
 class StructureGroupModel(ModelBase):
-    def __init__(self, df, measure, name=""):
+    def __init__(self, df, measure, noncentered=True, name=""):
 
         df = df.copy()
 
@@ -234,60 +221,82 @@ class StructureGroupModel(ModelBase):
         mu_th_offset = pm.Normal("mu_th_offset", mu=0.0, sigma=1.0)
         sigma_th_offset = pm.HalfCauchy("sigma_th_offset", beta=1.0)
 
-        session_intercept = pm.Normal(
-            "session_intercept",
-            mu=0.0,
-            sigma=1.0,
-            shape=num_sessions,
-            dims="session",
-        )
-        session_hc_offset = pm.Normal(
-            "session_hc_offset",
-            mu=0.0,
-            sigma=1.0,
-            shape=num_sessions,
-            dims="session",
-        )
-        session_th_offset = pm.Normal(
-            "session_th_offset",
-            mu=0.0,
-            sigma=1.0,
-            shape=num_sessions,
-            dims="session",
-        )
+        if noncentered is False:
+            session_intercept = pm.Normal(
+                "session_intercept",
+                mu=mu_intercept,
+                sigma=sigma_intercept,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_hc_offset = pm.Normal(
+                "session_hc_offset",
+                mu=mu_hc_offset,
+                sigma=sigma_hc_offset,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_th_offset = pm.Normal(
+                "session_th_offset",
+                mu=mu_th_offset,
+                sigma=sigma_th_offset,
+                shape=num_sessions,
+                dims="session",
+            )
+        else:
+            session_intercept_scaled = pm.Normal(
+                "session_intercept_scaled",
+                mu=0.0,
+                sigma=1.0,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_intercept = pm.Deterministic(
+                "session_intercept",
+                mu_intercept + session_intercept_scaled * sigma_intercept,
+                dims="session",
+            )
 
+            session_hc_offset_scaled = pm.Normal(
+                "session_hc_offset_scaled",
+                mu=0.0,
+                sigma=1.0,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_hc_offset = pm.Deterministic(
+                "session_hc_offset",
+                mu_hc_offset + session_hc_offset_scaled * sigma_hc_offset,
+                dims="session",
+            )
+
+            session_th_offset_scaled = pm.Normal(
+                "session_th_offset_scaled",
+                mu=0.0,
+                sigma=1.0,
+                shape=num_sessions,
+                dims="session",
+            )
+            session_th_offset = pm.Deterministic(
+                "session_th_offset",
+                mu_th_offset + session_th_offset_scaled * sigma_th_offset,
+                dims="session",
+            )
+
+        global_intercept = pm.Normal("global_intercept", mu=0.0, sigma=1.0)
         b_os_rf = pm.Normal("b_os_rf", mu=0.0, sigma=1.0)
         b_log_fr = pm.Normal("b_log_fr", mu=0.0, sigma=1.0)
-
-        # deterministic variables. we do not use them for furhter modeling, but they help visualizing.
-        pm.Deterministic(
-            "eff_session_hc_offset",
-            mu_hc_offset + session_hc_offset * sigma_hc_offset,
-            dims="session",
-        )
-        pm.Deterministic(
-            "eff_session_th_offset",
-            mu_th_offset + session_th_offset * sigma_th_offset,
-            dims="session",
-        )
-        pm.Deterministic(
-            "eff_session_intercept",
-            mu_intercept + session_intercept * sigma_intercept,
-            dims="session",
-        )
 
         # structure group model
         yest = (
             # global intercept
-            mu_intercept
+            global_intercept
             # session-level intercept. one for each sessions
-            + sigma_intercept * session_intercept[session_idx]
+            + session_intercept[session_idx]
             #
-            + (mu_hc_offset + session_hc_offset[session_idx] * sigma_hc_offset)
-            * df["is_higher_cortical"].values
+            + session_hc_offset[session_idx] * df["is_higher_cortical"].values
             #
-            + (mu_th_offset + session_th_offset[session_idx] * sigma_th_offset)
-            * df["is_thalamus"].values
+            + session_th_offset[session_idx] * df["is_thalamus"].values
             # per-unit terms
             + b_os_rf * df["on_screen_rf"].values
             + b_log_fr * df["z_log_firing_rate"].values
