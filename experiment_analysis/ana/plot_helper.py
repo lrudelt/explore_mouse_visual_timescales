@@ -393,6 +393,7 @@ def panel_hierarchy_score(df, obs, ax=None):
         color="black",
         alpha=0.5,
         zorder=1,
+        clip_on=False,
     )
 
     r_p, p_p = scipy.stats.pearsonr(xs, ys)
