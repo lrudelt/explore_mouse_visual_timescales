@@ -9,12 +9,12 @@ matplotlib.rcParams["xtick.labelsize"] = 8
 matplotlib.rcParams["ytick.labelsize"] = 8
 matplotlib.rcParams["xtick.major.pad"] = 2  # padding between text and the tick
 matplotlib.rcParams["ytick.major.pad"] = 2  # default 3.5
-matplotlib.rcParams["lines.dash_capstyle"] = "round"
-matplotlib.rcParams["lines.solid_capstyle"] = "round"
+matplotlib.rcParams["lines.dash_capstyle"] = "butt"
+matplotlib.rcParams["lines.solid_capstyle"] = "butt"
 matplotlib.rcParams["font.size"] = 6
 matplotlib.rcParams["mathtext.default"] = "regular"
-matplotlib.rcParams["axes.titlesize"] = 8
-matplotlib.rcParams["axes.labelsize"] = 8
+matplotlib.rcParams["axes.titlesize"] = 9
+matplotlib.rcParams["axes.labelsize"] = 9
 matplotlib.rcParams["legend.fontsize"] = 6
 matplotlib.rcParams["legend.facecolor"] = "#D4D4D4"
 matplotlib.rcParams["legend.framealpha"] = 0.8
@@ -41,6 +41,19 @@ log = logging.getLogger("plot_helper")
 # lookup tables
 # ------------------------------------------------------------------------------ #
 
+
+color_palette = sns.color_palette()
+structures_colors = {
+        "V1": color_palette[4],
+        "LM": color_palette[0],
+        "RL": color_palette[9],
+        "AL": color_palette[8],
+        "PM": color_palette[1],
+        "AM": color_palette[3],
+       "LGN": color_palette[6],
+        "LP": color_palette[2],
+}
+
 structure_colors = {
     "V1": "#9467BD",
     "LM": "#2078B4",
@@ -56,8 +69,8 @@ structure_colors = {
 }
 
 y_labels = {
-    "tau_double": "intrinsic\ntimescale " + r"$\tau_{\rm {c}}$ (ms)",
-    "tau_single": "intrinsic\ntimescale " + r"$\tau_{\rm {c1}}$ (ms)",
+    "tau_double": "correlation\ntimescale " + r"$\tau_{\rm {c}}$ (ms)",
+    "tau_single": "correlation\ntimescale " + r"$\tau_{\rm {c1}}$ (ms)",
     "R_tot": "predictability " + r"$R_{\rm {tot}}$",
     "tau_R": "information\ntimescale " + r"$\tau_{\rm {R}}$ (ms)",
 }
@@ -189,7 +202,7 @@ def panel_areas_grouped(df, obs, ax=None):
                 [_x_pos(structure), _x_pos(structure)],
                 [quantiles[0], quantiles[1]],
                 color=structure_colors[structure],
-                linewidth=1.2,
+                linewidth=1.6,
                 zorder=1,
                 clip_on=False,
             )
@@ -199,7 +212,8 @@ def panel_areas_grouped(df, obs, ax=None):
                 "o",
                 color="white",
                 mec=structure_colors[structure],
-                ms=2.5,
+                mew=0.8,
+                ms=5,
                 zorder=2,
                 clip_on=False,
             )
@@ -229,8 +243,8 @@ def panel_areas_grouped(df, obs, ax=None):
         # plot the p value bar, x in data coordinates, y in axis coordinates
         x1 = _x_pos(i)[2] - (_x_pos(i)[2] - _x_pos(i)[0]) / 2
         x2 = _x_pos(j)[2] - (_x_pos(j)[2] - _x_pos(j)[0]) / 2
-        y_line = 1.2 - 0.07 * (idx + 1)
-        y_text = 1.2 - 0.07 * (idx + 1) + 0.05
+        y_line = 0.95 - 0.07 * (idx + 1)
+        y_text = 0.95 - 0.07 * (idx + 1) + 0.05
 
         ax.plot(
             [x1, x2],
@@ -248,7 +262,7 @@ def panel_areas_grouped(df, obs, ax=None):
             p_str,
             ha="center",
             va="top",
-            fontsize=6,
+            fontsize=7,
             color="black",
             zorder=2,
             transform=ax.get_xaxis_transform(),
@@ -282,7 +296,7 @@ def panel_areas_grouped(df, obs, ax=None):
 
     # y-limits, hard-coded
     if obs == "tau_double" or obs == "tau_single":
-        ylim = (0.1, 0.6)
+        ylim = (0.175, 0.6)
     elif obs == "tau_R":
         ylim = (0.01, 0.07)
     elif obs == "R_tot":
@@ -304,7 +318,7 @@ def panel_areas_grouped(df, obs, ax=None):
     return ax
 
 
-def panel_hierarchy_score(df, obs, ax=None):
+def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
 
     assert obs in ["tau_double", "tau_single", "R_tot", "tau_R"]
 
@@ -369,17 +383,18 @@ def panel_hierarchy_score(df, obs, ax=None):
             "o",
             color="white",
             mec=structure_colors[structure],
-            ms=2.5,
+            mew=0.8,
+            ms=5,
             zorder=3,
-            clip_on=False,
+            clip_on=True,
         )
         ax.plot(
             [x, x],
             [quantiles[0], quantiles[1]],
             color=structure_colors[structure],
-            linewidth=1.2,
+            linewidth=1.6,
             zorder=2,
-            clip_on=False,
+            clip_on=True,
         )
 
     # linear fit
@@ -392,6 +407,7 @@ def panel_hierarchy_score(df, obs, ax=None):
         ls="--",
         color="black",
         alpha=0.5,
+        linewidth=1.2,
         zorder=1,
         clip_on=False,
     )
@@ -399,23 +415,24 @@ def panel_hierarchy_score(df, obs, ax=None):
     r_p, p_p = scipy.stats.pearsonr(xs, ys)
     r_s, p_s = scipy.stats.spearmanr(xs, ys)
 
-    text = ""
-    text += r"$r_{\rm P} = " + f"{r_p:.2f}" + r"$" + "  "
-    text += r"$P_{\rm P} = " + f"{p_p:.2f}" + r"$" + "\n"
-    text += r"$r_{\rm S} = " + f"{r_s:.2f}" + r"$" + "  "
-    text += r"$P_{\rm S} = " + f"{p_s:.2f}" + r"$" + "\n"
+    correlation_stats = {"pearson": [r_p, p_p], "spearman": [r_s, p_s]}
 
-    text_kwargs = dict(
-        s=text,
-        fontsize=6,
-        color="black",
-        transform=ax.transAxes,
-    )
-    if "tau" in obs:
-        ax.text(0.95, 0.015, ha="right", va="bottom", **text_kwargs)
-    else:
-        ax.text(0.05, 0.015, ha="left", va="bottom", **text_kwargs)
-
+    if plot_option == "default":
+        text = ""
+        text += r"$r_{\rm P} = " + f"{r_p:.2f}" + r"$" + "  "
+        text += r"$P_{\rm P} = " + f"{p_p:.2f}" + r"$" + "\n"
+        text += r"$r_{\rm S} = " + f"{r_s:.2f}" + r"$" + "  "
+        text += r"$P_{\rm S} = " + f"{p_s:.2f}" + r"$" + "\n"
+        text_kwargs = dict(
+            s=text,
+            fontsize=6.5,
+            color="black",
+            transform=ax.transAxes,
+        )
+        # if "tau" in obs:        
+        ax.text(0.99, 0.015, ha="right", va="bottom", **text_kwargs)
+        # else: 
+            # ax.text(0.25, 0.015, ha="left", va="bottom", **text_kwargs)
     # ------------------------------------------------------------------------------ #
     # axis styling
     # ------------------------------------------------------------------------------ #
@@ -456,7 +473,11 @@ def panel_hierarchy_score(df, obs, ax=None):
     ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
     ax.set_axisbelow(True)
 
+    # format x axis
+    plt.minorticks_off()
+    ax.set_xticks([-0.25, 0, 0.25])
 
+    return ax, correlation_stats
 # ------------------------------------------------------------------------------ #
 # plotting helpers
 # ------------------------------------------------------------------------------ #
