@@ -480,7 +480,7 @@ def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
     return ax, correlation_stats
 
 
-def panel_selectivity_violin(df, xlabels = None, ax=None, logscale = False, **kwargs):
+def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwargs):
     """
     Create a single panel for the sensitivity. Query the dataframe beforehand to the right blocks / stimuli!
 
@@ -546,9 +546,10 @@ def panel_selectivity_violin(df, xlabels = None, ax=None, logscale = False, **kw
     log.info(f"violins for {obs}, {labels}, N={N}")
 
     # p values and differences between labels:
-    pivot_df = df.pivot(index='unit_id', columns=category, values=kwargs["observable"])
+    # if we use `kwargs['observable']` instead of obs, it would potentially be log-difference, but we want in lin-space.
+    pivot_df = df.pivot(index='unit_id', columns=category, values=obs)
     for i, j in combinations(range(0, len(labels)), 2):
-        diff = pivot_df[labels[i]] - pivot_df[labels[j]]
+        diff = pivot_df[labels[j]] - pivot_df[labels[i]]
         p = scipy.stats.wilcoxon(diff).pvalue
 
         diff_percent = (diff / pivot_df[labels[j]]) * 100
@@ -559,13 +560,8 @@ def panel_selectivity_violin(df, xlabels = None, ax=None, logscale = False, **kw
     ax = fancy_violins(df,**kwargs)
 
     if logscale:
-        from bitsandbobs.plt import ticklabels_lin_to_log10_power
-
-        import functools
-        f = functools.partial(ticklabels_lin_to_log10_power, nice_range=range(-1, 4))
-
         ax.yaxis.set_major_formatter(
-            matplotlib.ticker.FuncFormatter(f)
+            matplotlib.ticker.FuncFormatter(_ticklabels_lin_to_log10)
         )
         ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(1))
 
@@ -607,6 +603,77 @@ def panel_selectivity_violin(df, xlabels = None, ax=None, logscale = False, **kw
     return ax
 
 
+def panel_selectivity_scatter(df, observable, ax=None):
+
+    assert "g_dsi_dg" in df.columns, "g_dsi_dg not in columns, `load_metrics()` first"
+
+    # aviod nans
+    len_before = len(df)
+    df = df.query(f"{observable} == {observable}")
+    df = df.query("g_dsi_dg == g_dsi_dg")
+    len_after = len(df)
+    log.info(f"dropped {len_before - len_after} rows with nan")
+
+    if "tau_" in observable:
+        # seconds to ms
+        df[observable] = df[observable]*1000
+
+    fig, ax = plt.subplots()
+    ax.scatter(df["g_dsi_dg"], df[observable], s=0.2, alpha=0.5,  lw=0);
+    ax.set_ylim(0, 0.2)
+    # ax.set_xscale("log")
+
+    r , p_val = scipy.stats.pearsonr(df["g_dsi_dg"], df[observable])
+    m, b = np.polyfit(df["g_dsi_dg"], df[observable], 1)
+
+    log.info(f"r: {r:.3f}, p: {p_val:.2g}, m: {m:.3f}, b: {b:.3f}")
+    ax.plot(df["g_dsi_dg"], m*df["g_dsi_dg"] + b, color = ".2")
+
+    if p_val >= 1e-8:
+        p_val_text = r"$\it{p}$ = " + _format_base_ten(p_val)
+    else:
+        p_val_text = r"$\it{p} < 10^{-8}$"
+
+    pos_text_x = 0.95
+    if observable == "tau_double":
+        y_text = 0.8
+        y_max = 1501
+        y_min = -(y_max / 100)
+    elif observable == "tau_R":
+        y_text = 0.8
+        y_max = 201
+        y_min = -(y_max / 100)
+    elif observable == "R_tot":
+        y_text = 0.2
+        y_max = 0.3
+        y_min = -(y_max / 100)
+
+    ax.text(
+        pos_text_x,
+        y_text,
+        r"$\it{r} = %s$"%(f'{r:.2f}') + "\n" + p_val_text ,
+        ha='right',
+        va='center',
+        transform=ax.transAxes,
+    )
+
+
+    ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+    ax.set_axisbelow(True)
+
+    sns.despine(ax=ax, left=True, bottom=False, offset=5)
+
+    ax.yaxis.set_ticks_position('none')
+    ax.spines["left"].set_visible(False)
+
+    ax.set_xlim(0, 1.0)
+    ax.xaxis.set_major_locator(plt.MultipleLocator(0.2))
+    ax.set_ylim(y_min, y_max)
+
+    ax.set_xlabel("direction selectivity")
+    ax.set_ylabel(y_labels[observable])
+
+    return ax
 
 # ------------------------------------------------------------------------------ #
 # plotting helpers
@@ -1038,3 +1105,54 @@ def _alpha_to_solid_on_bg(base, alpha, bg="white"):
     new_base = list(matplotlib.colors.to_rgba(base))
     new_base[3] = alpha
     return matplotlib.colors.to_hex(rgba_to_rgb(new_base, bg))
+
+
+def _ticklabels_lin_to_log10_power(x, pos, nicer=True, nice_range=[-1, 0, 1]):
+    """
+    converts ticks of manually logged data (lin ticks) to log ticks, as follows
+     1 -> 10^1
+     0 -> 10^0
+    -1 -> 10^-1
+    """
+    if x.is_integer():
+        # use easy to read formatter if exponents are close to zero
+        if nicer and x in nice_range:
+            return _ticklabels_lin_to_log10(x, pos)
+        else:
+            return r"$10^{{{:d}}}$".format(int(x))
+    else:
+        return ""
+
+def _ticklabels_lin_to_log10(x, pos):
+    """
+    converts ticks of manually logged data (lin ticks) to log ticks, as follows
+     1 -> 10
+     0 -> 1
+    -1 -> 0.1
+
+    # Example
+    ```
+    ax.xaxis.set_major_formatter(
+        matplotlib.ticker.FuncFormatter(ticklabels_lin_to_log10_power)
+    )
+    ax.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(1))
+    ax.xaxis.set_minor_locator(ticklocator_lin_to_log_minor())
+    ```
+    """
+    prec = int(np.ceil(-np.minimum(x, 0)))
+    return "{{:.{:1d}f}}".format(prec).format(np.power(10.0, x))
+
+def _format_base_ten(x):
+    """
+    Input a float, get a string representation that is formatted
+    to 3.5 x 10^3
+    """
+    if x == 0:
+        return "0"
+    else:
+        a = np.floor(np.log10(np.abs(x)))
+        b = x / 10 ** a
+        if abs(a) < 3:
+            return "{:.3f}".format(x)
+
+        return r"${:.1f} \times 10^{{{}}}$".format(b, int(a))
