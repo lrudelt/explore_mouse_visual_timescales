@@ -478,6 +478,136 @@ def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
     ax.set_xticks([-0.25, 0, 0.25])
 
     return ax, correlation_stats
+
+
+def panel_selectivity_violin(df, xlabels = None, ax=None, logscale = False, **kwargs):
+    """
+    Create a single panel for the sensitivity. Query the dataframe beforehand to the right blocks / stimuli!
+
+    This is a wrapper around fancy_violins() that does some more styling.
+    """
+
+    defaults = dict(
+        category = "stimulus",
+        observable = "R_tot",
+        violin_kwargs=dict(
+            scale="width",
+        ),
+        swarm_kwargs=dict(
+            size=1.4,
+        ),
+        num_swarm_points=400,
+        same_points_per_swarm=True,
+        seed=44,
+        replace=False,
+        # palette={
+        #     "merged_3.0_and_8.0" : "#233954",
+        #     "null" : "#EA5E48",
+        # },
+    )
+
+    # Update defaults with kwargs, overwriting existing keys
+    defaults.update(kwargs)
+    kwargs = defaults
+    obs = kwargs['observable']
+
+    if "tau_" in obs:
+        # seconds to ms
+        df[obs] = df[obs]*1000
+
+    if logscale:
+        # use a log-scale for the y-axis. datatransform before plotting,
+        # and fix ticks afterwards.
+        num_rows_before = len(df)
+        log_values = np.log10(df[obs])
+        #  pd.dropna does not drop inf/-inf, so we have to cast them.
+        log_values = np.where(np.isinf(log_values), np.nan, log_values)
+        df[f"log_{obs}"] = log_values
+        kwargs["observable"] = f"log_{obs}"
+        df = df.dropna(subset=[f"log_{obs}"])
+        num_rows_after = len(df)
+        log.info(f"dropped {num_rows_before - num_rows_after} rows with nan / inf")
+
+    category = kwargs['category']
+    labels = df[category].unique()
+    num_violins = len(labels)
+
+    # only use units that occur in every condition
+    valid_units = df.groupby('unit_id').filter(lambda x: len(x) == num_violins)['unit_id'].unique()
+    df = df.query('unit_id in @valid_units')
+    # sanity check:
+    num_rows_per_label = len(df.query(f"{category} == '{labels[0]}'"))
+    for l in labels:
+        assert len(df.query(f"{category} == '{l}'")) == num_rows_per_label
+
+    N = num_rows_per_label
+
+
+    log.info(f"violins for {obs}, {labels}, N={N}")
+
+    # p values and differences between labels:
+    pivot_df = df.pivot(index='unit_id', columns=category, values=kwargs["observable"])
+    for i, j in combinations(range(0, len(labels)), 2):
+        diff = pivot_df[labels[i]] - pivot_df[labels[j]]
+        p = scipy.stats.wilcoxon(diff).pvalue
+
+        diff_percent = (diff / pivot_df[labels[j]]) * 100
+        diff_percent = np.median(diff_percent)
+
+        log.info(f"{labels[i]} vs {labels[j]} diff={diff_percent:.1f}% {p=}")
+
+    ax = fancy_violins(df,**kwargs)
+
+    if logscale:
+        from bitsandbobs.plt import ticklabels_lin_to_log10_power
+
+        import functools
+        f = functools.partial(ticklabels_lin_to_log10_power, nice_range=range(-1, 4))
+
+        ax.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(f)
+        )
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(1))
+
+
+    if xlabels is not None:
+        assert isinstance(xlabels, (list, tuple))
+        assert len(xlabels) == len(labels)
+        ax.set_xticklabels(xlabels)
+
+    ax.set_xlabel("")
+    ax.set_ylabel(y_labels[obs])
+
+    # grid
+    ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+    ax.set_axisbelow(True)
+
+    # remove axis
+    ax.yaxis.set_ticks_position('none')
+    ax.xaxis.set_ticks_position('none')
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+
+    # obseravble level customization
+    if obs == "R_tot":
+        ax.set_ylim(-0.08, None)
+    elif "tau_" in obs and logscale:
+        ax.set_ylim(-0.5, None)
+
+
+    text_kwargs = dict(
+        s=r"$\it{N} = " + str(N) + r"$",
+        fontsize=8,
+        color="black",
+        transform=ax.transAxes,
+    )
+    # if "tau" in obs:
+    ax.text(0.5, 0.05, ha="center", va="bottom", **text_kwargs)
+
+    return ax
+
+
+
 # ------------------------------------------------------------------------------ #
 # plotting helpers
 # ------------------------------------------------------------------------------ #
