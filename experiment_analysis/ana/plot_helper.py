@@ -69,10 +69,10 @@ structure_colors = {
 }
 
 y_labels = {
-    "tau_double": "correlation\ntimescale " + r"$\tau_{\rm {c}}$ (ms)",
-    "tau_single": "correlation\ntimescale " + r"$\tau_{\rm {c1}}$ (ms)",
-    "R_tot": "predictability " + r"$R_{\rm {tot}}$",
-    "tau_R": "information\ntimescale " + r"$\tau_{\rm {R}}$ (ms)",
+    "tau_double": "correlation\ntimescale " + r"$\it{\tau}_{\rm {c}}$ (ms)",
+    "tau_single": "correlation\ntimescale " + r"$\it{\tau}_{\rm {c1}}$ (ms)",
+    "R_tot": "predictability " + r"$\it{R}_{\rm {tot}}$",
+    "tau_R": "information\ntimescale " + r"$\it{\tau}_{\rm {R}}$ (ms)",
 }
 
 
@@ -419,19 +419,19 @@ def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
 
     if plot_option == "default":
         text = ""
-        text += r"$r_{\rm P} = " + f"{r_p:.2f}" + r"$" + "  "
-        text += r"$P_{\rm P} = " + f"{p_p:.2f}" + r"$" + "\n"
-        text += r"$r_{\rm S} = " + f"{r_s:.2f}" + r"$" + "  "
-        text += r"$P_{\rm S} = " + f"{p_s:.2f}" + r"$" + "\n"
+        text += r"$\it{r}_{\rm P} = " + f"{r_p:.2f}" + r"$" + "  "
+        text += r"$\it{P}_{\rm P} = " + f"{p_p:.2f}" + r"$" + "\n"
+        text += r"$\it{r}_{\rm S} = " + f"{r_s:.2f}" + r"$" + "  "
+        text += r"$\it{P}_{\rm S} = " + f"{p_s:.2f}" + r"$" + "\n"
         text_kwargs = dict(
             s=text,
             fontsize=6.5,
             color="black",
             transform=ax.transAxes,
         )
-        # if "tau" in obs:        
+        # if "tau" in obs:
         ax.text(0.99, 0.015, ha="right", va="bottom", **text_kwargs)
-        # else: 
+        # else:
             # ax.text(0.25, 0.015, ha="left", va="bottom", **text_kwargs)
     # ------------------------------------------------------------------------------ #
     # axis styling
