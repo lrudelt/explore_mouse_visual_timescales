@@ -33,7 +33,7 @@ import pandas as pd
 import scipy.stats
 from itertools import combinations
 
-from . utility import hierarchy_scores, structure_names, area_groups
+from .utility import hierarchy_scores, structure_names, area_groups
 
 log = logging.getLogger("plot_helper")
 
@@ -44,14 +44,14 @@ log = logging.getLogger("plot_helper")
 
 color_palette = sns.color_palette()
 structures_colors = {
-        "V1": color_palette[4],
-        "LM": color_palette[0],
-        "RL": color_palette[9],
-        "AL": color_palette[8],
-        "PM": color_palette[1],
-        "AM": color_palette[3],
-       "LGN": color_palette[6],
-        "LP": color_palette[2],
+    "V1": color_palette[4],
+    "LM": color_palette[0],
+    "RL": color_palette[9],
+    "AL": color_palette[8],
+    "PM": color_palette[1],
+    "AM": color_palette[3],
+    "LGN": color_palette[6],
+    "LP": color_palette[2],
 }
 
 structure_colors = {
@@ -228,7 +228,9 @@ def panel_areas_grouped(df, obs, ax=None):
         dfi = df.query(f"structure_name in {area_groups[i]}")
         dfj = df.query(f"structure_name in {area_groups[j]}")
 
-        MW_u, MW_p = scipy.stats.mannwhitneyu(dfi[obs], dfj[obs], alternative="two-sided")
+        MW_u, MW_p = scipy.stats.mannwhitneyu(
+            dfi[obs], dfj[obs], alternative="two-sided"
+        )
         log.debug(f"{idx} {i} vs. {j} MW_p: {MW_p:.3g}")
 
         if MW_p < 0.001:
@@ -432,7 +434,7 @@ def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
         # if "tau" in obs:
         ax.text(0.99, 0.015, ha="right", va="bottom", **text_kwargs)
         # else:
-            # ax.text(0.25, 0.015, ha="left", va="bottom", **text_kwargs)
+        # ax.text(0.25, 0.015, ha="left", va="bottom", **text_kwargs)
     # ------------------------------------------------------------------------------ #
     # axis styling
     # ------------------------------------------------------------------------------ #
@@ -480,7 +482,7 @@ def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
     return ax, correlation_stats
 
 
-def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwargs):
+def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
     """
     Create a single panel for the sensitivity. Query the dataframe beforehand to the right blocks / stimuli!
 
@@ -488,8 +490,8 @@ def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwar
     """
 
     defaults = dict(
-        category = "stimulus",
-        observable = "R_tot",
+        category="stimulus",
+        observable="R_tot",
         violin_kwargs=dict(
             scale="width",
         ),
@@ -509,11 +511,11 @@ def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwar
     # Update defaults with kwargs, overwriting existing keys
     defaults.update(kwargs)
     kwargs = defaults
-    obs = kwargs['observable']
+    obs = kwargs["observable"]
 
     if "tau_" in obs:
         # seconds to ms
-        df[obs] = df[obs]*1000
+        df[obs] = df[obs] * 1000
 
     if logscale:
         # use a log-scale for the y-axis. datatransform before plotting,
@@ -528,13 +530,17 @@ def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwar
         num_rows_after = len(df)
         log.info(f"dropped {num_rows_before - num_rows_after} rows with nan / inf")
 
-    category = kwargs['category']
+    category = kwargs["category"]
     labels = df[category].unique()
     num_violins = len(labels)
 
     # only use units that occur in every condition
-    valid_units = df.groupby('unit_id').filter(lambda x: len(x) == num_violins)['unit_id'].unique()
-    df = df.query('unit_id in @valid_units')
+    valid_units = (
+        df.groupby("unit_id")
+        .filter(lambda x: len(x) == num_violins)["unit_id"]
+        .unique()
+    )
+    df = df.query("unit_id in @valid_units")
     # sanity check:
     num_rows_per_label = len(df.query(f"{category} == '{labels[0]}'"))
     for l in labels:
@@ -542,29 +548,36 @@ def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwar
 
     N = num_rows_per_label
 
-
     log.info(f"violins for {obs}, {labels}, N={N}")
 
     # p values and differences between labels:
-    # if we use `kwargs['observable']` instead of obs, it would potentially be log-difference, but we want in lin-space.
-    pivot_df = df.pivot(index='unit_id', columns=category, values=obs)
+    # if we use `kwargs['observable']` instead of obs, it would potentially be log-difference, but we want in lin-space because otherwise differences would are hard to interpret.
+    pivot_df = df.pivot(index="unit_id", columns=category, values=obs)
     for i, j in combinations(range(0, len(labels)), 2):
-        diff = pivot_df[labels[j]] - pivot_df[labels[i]]
+        diff = pivot_df[labels[i]] - pivot_df[labels[j]]
         p = scipy.stats.wilcoxon(diff).pvalue
 
-        diff_percent = (diff / pivot_df[labels[j]]) * 100
+        # do we want median of pairwise differences
+        diff_percent = (diff / pivot_df[labels[i]]) * 100
         diff_percent = np.median(diff_percent)
 
-        log.info(f"{labels[i]} vs {labels[j]} diff={diff_percent:.1f}% {p=}")
+        # or difference of sample medians
+        mi = np.median(pivot_df[labels[i]])
+        mj = np.median(pivot_df[labels[j]])
+        diff_median_percent = ((mi - mj) / mi) * 100
 
-    ax = fancy_violins(df,**kwargs)
+        log.info(f"median [{labels[i]}]: {mi:.3f}, [{labels[j]}]: {mj:.3f}")
+        log.info(
+            f"{labels[i]} vs {labels[j]} pairwise_diff={diff_percent:.1f}% diff_of_medians={diff_median_percent:.1f}% {p=}"
+        )
+
+    ax = fancy_violins(df, **kwargs)
 
     if logscale:
         ax.yaxis.set_major_formatter(
             matplotlib.ticker.FuncFormatter(_ticklabels_lin_to_log10)
         )
         ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(1))
-
 
     if xlabels is not None:
         assert isinstance(xlabels, (list, tuple))
@@ -579,8 +592,8 @@ def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwar
     ax.set_axisbelow(True)
 
     # remove axis
-    ax.yaxis.set_ticks_position('none')
-    ax.xaxis.set_ticks_position('none')
+    ax.yaxis.set_ticks_position("none")
+    ax.xaxis.set_ticks_position("none")
     ax.spines["left"].set_visible(False)
     ax.spines["bottom"].set_visible(False)
 
@@ -590,15 +603,13 @@ def panel_stimulus_violins(df, xlabels = None, ax=None, logscale = False, **kwar
     elif "tau_" in obs and logscale:
         ax.set_ylim(-0.5, None)
 
-
-    text_kwargs = dict(
-        s=r"$\it{N} = " + str(N) + r"$",
-        fontsize=8,
-        color="black",
-        transform=ax.transAxes,
-    )
-    # if "tau" in obs:
-    ax.text(0.5, 0.05, ha="center", va="bottom", **text_kwargs)
+    # text_kwargs = dict(
+    #     s=r"$\it{N} = " + str(N) + r"$",
+    #     fontsize=8,
+    #     color="black",
+    #     transform=ax.transAxes,
+    # )
+    # ax.text(0.5, 0.05, ha="center", va="bottom", **text_kwargs)
 
     return ax
 
@@ -616,18 +627,18 @@ def panel_selectivity_scatter(df, observable, ax=None):
 
     if "tau_" in observable:
         # seconds to ms
-        df[observable] = df[observable]*1000
+        df[observable] = df[observable] * 1000
 
     fig, ax = plt.subplots()
-    ax.scatter(df["g_dsi_dg"], df[observable], s=0.2, alpha=0.5,  lw=0);
+    ax.scatter(df["g_dsi_dg"], df[observable], s=0.2, alpha=0.5, lw=0, rasterized=True)
     ax.set_ylim(0, 0.2)
     # ax.set_xscale("log")
 
-    r , p_val = scipy.stats.pearsonr(df["g_dsi_dg"], df[observable])
+    r, p_val = scipy.stats.pearsonr(df["g_dsi_dg"], df[observable])
     m, b = np.polyfit(df["g_dsi_dg"], df[observable], 1)
 
     log.info(f"r: {r:.3f}, p: {p_val:.2g}, m: {m:.3f}, b: {b:.3f}")
-    ax.plot(df["g_dsi_dg"], m*df["g_dsi_dg"] + b, color = ".2")
+    ax.plot(df["g_dsi_dg"], m * df["g_dsi_dg"] + b, lw=1.0)
 
     if p_val >= 1e-8:
         p_val_text = r"$\it{p}$ = " + _format_base_ten(p_val)
@@ -651,19 +662,18 @@ def panel_selectivity_scatter(df, observable, ax=None):
     ax.text(
         pos_text_x,
         y_text,
-        r"$\it{r} = %s$"%(f'{r:.2f}') + "\n" + p_val_text ,
-        ha='right',
-        va='center',
+        r"$\it{r} = %s$" % (f"{r:.2f}") + "\n" + p_val_text,
+        ha="right",
+        va="center",
         transform=ax.transAxes,
     )
-
 
     ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
     ax.set_axisbelow(True)
 
     sns.despine(ax=ax, left=True, bottom=False, offset=5)
 
-    ax.yaxis.set_ticks_position('none')
+    ax.yaxis.set_ticks_position("none")
     ax.spines["left"].set_visible(False)
 
     ax.set_xlim(0, 1.0)
@@ -674,6 +684,7 @@ def panel_selectivity_scatter(df, observable, ax=None):
     ax.set_ylabel(y_labels[observable])
 
     return ax
+
 
 # ------------------------------------------------------------------------------ #
 # plotting helpers
@@ -687,6 +698,7 @@ def fancy_violins(
     ax=None,
     num_swarm_points=400,
     same_points_per_swarm=True,
+    swarm_spacing=0.0,
     replace=False,
     palette=None,
     seed=42,
@@ -816,7 +828,6 @@ def fancy_violins(
 
         # custom error estimates
         df_for_cat = sub_dfs[cat]
-        # log.debug("bootstrapping")
 
         samples = _pd_bootstrap(
             df_for_cat,
@@ -892,6 +903,11 @@ def fancy_violins(
 
     log.debug(f"plotting {len(merged_df)} points for cat {category}")
 
+    # sns uses the linewidth to calcultate the spacing
+    # we add and later substracted to linewidth.
+    original_lw = swarm_kwargs["linewidth"]
+    swarm_kwargs["linewidth"] += swarm_spacing
+
     sns.swarmplot(
         x=category,
         y=observable,
@@ -908,6 +924,8 @@ def fancy_violins(
         offsets = offsets[odx]
         offsets[:, 0] += 0.05
         c.set_offsets(offsets)
+        # re-adjust the linewidth of the swarm points
+        c.set_linewidths(original_lw)
 
     ax.get_legend().set_visible(False)
 
@@ -1123,6 +1141,7 @@ def _ticklabels_lin_to_log10_power(x, pos, nicer=True, nice_range=[-1, 0, 1]):
     else:
         return ""
 
+
 def _ticklabels_lin_to_log10(x, pos):
     """
     converts ticks of manually logged data (lin ticks) to log ticks, as follows
@@ -1142,6 +1161,7 @@ def _ticklabels_lin_to_log10(x, pos):
     prec = int(np.ceil(-np.minimum(x, 0)))
     return "{{:.{:1d}f}}".format(prec).format(np.power(10.0, x))
 
+
 def _format_base_ten(x):
     """
     Input a float, get a string representation that is formatted
@@ -1151,7 +1171,7 @@ def _format_base_ten(x):
         return "0"
     else:
         a = np.floor(np.log10(np.abs(x)))
-        b = x / 10 ** a
+        b = x / 10**a
         if abs(a) < 3:
             return "{:.3f}".format(x)
 
