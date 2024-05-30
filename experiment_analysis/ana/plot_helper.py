@@ -32,6 +32,7 @@ import seaborn as sns
 import pandas as pd
 import scipy.stats
 from itertools import combinations
+import arviz as az
 
 from .utility import hierarchy_scores, structure_names, area_groups
 
@@ -1176,3 +1177,126 @@ def _format_base_ten(x):
             return "{:.3f}".format(x)
 
         return r"${:.1f} \times 10^{{{}}}$".format(b, int(a))
+
+
+
+from arviz.data import convert_to_dataset
+from arviz.labels import BaseLabeller
+from arviz.sel_utils import xarray_var_iter
+from arviz.utils import _var_names, get_coords
+from arviz.rcparams import rcParams
+from arviz.plots.plot_utils import default_grid, filter_plotters_list, get_plotting_function
+from arviz.plots.backends.matplotlib import matplotlib_kwarg_dealiaser
+import seaborn as sns
+
+def plot_posterior(
+    data,
+    var_names=None,
+    filter_vars=None,
+    transform=None,
+    coords=None,
+    figsize=None,
+    textsize=None,
+    hdi=True,
+    hdi_prob=0.95,
+    multimodal=False,
+    round_to=2,
+    point_estimate="median",
+    group="posterior",
+    rope=None,
+    ref_val=None,
+    kind="kde",
+    bw=0.05,
+    bins=None,
+    ax=None,
+    show=None,
+    credible_interval=None,
+    **kwargs,
+):
+
+    data = convert_to_dataset(data, group="posterior")
+    if transform is not None:
+        data = transform(data)
+
+    coords = {}
+
+    plotters = filter_plotters_list(
+        list(
+            xarray_var_iter(
+                get_coords(data, coords=coords), var_names=var_names, combined=True
+            )
+        ),
+        "plot_posterior",
+    )
+
+    length_plotters = len(plotters)
+    rows, cols = default_grid(length_plotters)
+
+    (
+    figsize,
+    ax_labelsize,
+    titlesize,
+    xt_labelsize,
+    linewidth,
+    _,
+    ) = az.plots.plot_utils._scale_fig_size(figsize, textsize, rows, cols)
+    kwargs = matplotlib_kwarg_dealiaser(kwargs, "plot")
+    kwargs.setdefault("linewidth", linewidth)
+
+    # for (var_name, selection, isel, x), _ax in zip(plotters, np.ravel(ax)):
+    for (var_name, selection, isel, x) in plotters:
+        values = x.flatten()
+
+        if len(plotters) > 1: 
+            kwargs["color"] = sns.color_palette()[selection["session"] % 10]
+        # density
+        az.plot_kde(
+            values,
+            bw=bw,
+            fill_kwargs={"alpha": kwargs.pop("fill_alpha", 0)},
+            plot_kwargs=kwargs,
+            ax=ax,
+            rug=False,
+            show=False,
+        )
+        
+        plot_height = ax.get_ylim()[1]
+
+        # hdi
+        if hdi:
+            hdi_probs = az.stats.stats.hdi(
+                values, hdi_prob=hdi_prob, multimodal=multimodal
+            )  # type: np.ndarray
+
+            for hdi_i in np.atleast_2d(hdi_probs):
+                ax.plot(
+                    hdi_i,
+                    (plot_height * 0.02, plot_height * 0.02),
+                    lw=linewidth * 2,
+                    color="k",
+                    solid_capstyle="butt",
+                )
+
+            # median
+            point_value = az.plots.plot_utils.calculate_point_estimate(
+                point_estimate, values, bw
+            )
+            print("median: ", point_value)
+            ax.plot(point_value, plot_height * 0.02, "o", color="red")
+            
+    ax.yaxis.set_ticks([])
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(True)
+    ax.xaxis.set_ticks_position("bottom")
+    ax.tick_params(
+        axis="x",
+        direction="out",
+        width=1,
+        length=3,
+        color="0.5",
+        labelsize=xt_labelsize,
+    )
+    ax.spines["bottom"].set_color("0.5")
+
