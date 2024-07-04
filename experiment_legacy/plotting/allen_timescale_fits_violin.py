@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import scipy.stats as st
 
-path.insert(1, "../../allen_src/")
+path.insert(1, "../analysis/allen_src/")
 import analysis_utils as utl
 
 from matplotlib.legend_handler import HandlerTuple
@@ -127,7 +127,7 @@ fig0, ax = plt.subplots(figsize=plot_settings["panel_size"])
 fig0.subplots_adjust(right=0.98, left=0.1, bottom=0.1)
 
 lims = [-2.4, 1.9]
-ax.set_title('intrinsic timescale distributions')
+ax.set_title('correlation timescale distributions')
 measure = C_measure
 
 selection = timescale_data['mre_bic_passed'].values.astype(bool)

@@ -399,20 +399,33 @@ class StructureGroupModel(ModelBase):
                 dims="session",
             )
 
-        global_intercept = pm.Normal("global_intercept", mu=0.0, sigma=1.0)
+        # global_intercept = pm.Normal("global_intercept", mu=0.0, sigma=1.0)
         b_os_rf = pm.Normal("b_os_rf", mu=0.0, sigma=1.0)
         b_log_fr = pm.Normal("b_log_fr", mu=0.0, sigma=1.0)
 
-        # structure group model
+        # # structure group model
+        # yest = (
+        #     # global intercept
+        #     global_intercept
+        #     # session-level intercept. one for each sessions
+        #     + session_intercept[session_idx]
+        #     #
+        #     + session_hc_offset[session_idx] * df["is_higher_cortical"].values
+        #     #
+        #     + session_th_offset[session_idx] * df["is_thalamus"].values
+        #     # per-unit terms
+        #     + b_os_rf * df["on_screen_rf"].values
+        #     + b_log_fr * df["z_log_firing_rate"].values
+        # )
+
         yest = (
-            # global intercept
-            global_intercept
-            # session-level intercept. one for each sessions
-            + session_intercept[session_idx]
-            #
-            + session_hc_offset[session_idx] * df["is_higher_cortical"].values
-            #
-            + session_th_offset[session_idx] * df["is_thalamus"].values
+            pm.math.log(
+                # session-level intercept (for V1). one for each sessions
+                session_intercept[session_idx]
+                # offset of higher cortical areas relative to V1
+                + session_hc_offset[session_idx] * df["is_higher_cortical"].values
+                # offset of thalamic areas relative to V1
+                + session_th_offset[session_idx] * df["is_thalamus"].values)
             # per-unit terms
             + b_os_rf * df["on_screen_rf"].values
             + b_log_fr * df["z_log_firing_rate"].values
@@ -439,4 +452,3 @@ class StructureGroupModel(ModelBase):
                 observed=df[f"z_log_{measure}"],
                 dims="datapoint",
             )
-

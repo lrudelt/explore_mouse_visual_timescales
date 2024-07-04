@@ -76,6 +76,14 @@ y_labels = {
     "tau_R": "information\ntimescale " + r"$\it{\tau}_{\rm {R}}$ (ms)",
 }
 
+y_labels_short = {
+    "tau_double": r"$\it{\tau}_{\rm {c}}$ (ms)",
+    "tau_single": r"$\it{\tau}_{\rm {c1}}$ (ms)",
+    "R_tot": r"$\it{R}_{\rm {tot}}$",
+    "tau_R": r"$\it{\tau}_{\rm {R}}$ (ms)",
+}
+
+
 
 # ------------------------------------------------------------------------------ #
 # high level
@@ -615,14 +623,20 @@ def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
     return ax
 
 
-def panel_selectivity_scatter(df, observable, ax=None):
+def panel_selectivity_scatter(df, observable, selectivity_metric, color="#233954", ax=None, point_size = 0.5, plot_xlabel = True, plot_ylabel = True, plot_areaname = False, **kwargs):
 
-    assert "g_dsi_dg" in df.columns, "g_dsi_dg not in columns, `load_metrics()` first"
+    assert selectivity_metric in df.columns, f"{selectivity_metric} not in columns, `load_metrics()` first"
+    kwargs = kwargs.copy()
+
+    if "bonferroni_correction" in kwargs.keys():
+        bonferroni_correction  = kwargs["bonferroni_correction"]
+    else: 
+        bonferroni_correction = 1
 
     # aviod nans
     len_before = len(df)
     df = df.query(f"{observable} == {observable}")
-    df = df.query("g_dsi_dg == g_dsi_dg")
+    df = df.query(f"{selectivity_metric} == {selectivity_metric}")
     len_after = len(df)
     log.info(f"dropped {len_before - len_after} rows with nan")
 
@@ -630,44 +644,39 @@ def panel_selectivity_scatter(df, observable, ax=None):
         # seconds to ms
         df[observable] = df[observable] * 1000
 
-    fig, ax = plt.subplots()
-    ax.scatter(df["g_dsi_dg"], df[observable], s=0.2, alpha=0.5, lw=0, rasterized=True)
+    if ax == None:
+        fig, ax = plt.subplots()
+        print("passing ax failed")
+    ax.scatter(df[selectivity_metric], df[observable], s=point_size, alpha=0.5, lw=0, rasterized=True, c=color)
     ax.set_ylim(0, 0.2)
     # ax.set_xscale("log")
 
-    r, p_val = scipy.stats.pearsonr(df["g_dsi_dg"], df[observable])
-    m, b = np.polyfit(df["g_dsi_dg"], df[observable], 1)
+    r, p_val = scipy.stats.pearsonr(df[selectivity_metric], df[observable])
+    m, b = np.polyfit(df[selectivity_metric], df[observable], 1)
 
     log.info(f"r: {r:.3f}, p: {p_val:.2g}, m: {m:.3f}, b: {b:.3f}")
-    ax.plot(df["g_dsi_dg"], m * df["g_dsi_dg"] + b, lw=1.0)
-
-    if p_val >= 1e-8:
-        p_val_text = r"$\it{p}$ = " + _format_base_ten(p_val)
-    else:
-        p_val_text = r"$\it{p} < 10^{-8}$"
+    if p_val < 0.05 * bonferroni_correction:
+        ax.plot(df[selectivity_metric], m * df[selectivity_metric] + b, lw=1.0, color=color)
 
     pos_text_x = 0.95
     if observable == "tau_double":
-        y_text = 0.8
+        y_text = 0.88
         y_max = 1501
         y_min = -(y_max / 100)
+        if plot_areaname:
+            area_name = kwargs["area_name"]
+            x_text = kwargs["x_text"]
+            N_units = len(df)
+            ax.text(x_text,750, area_name, weight='bold')#, usetex = True )
+            ax.text(x_text,500, r"$n = %d$"%N_units)#, usetex = True)
     elif observable == "tau_R":
-        y_text = 0.8
+        y_text = 0.88
         y_max = 201
         y_min = -(y_max / 100)
     elif observable == "R_tot":
         y_text = 0.2
         y_max = 0.3
         y_min = -(y_max / 100)
-
-    ax.text(
-        pos_text_x,
-        y_text,
-        r"$\it{r} = %s$" % (f"{r:.2f}") + "\n" + p_val_text,
-        ha="right",
-        va="center",
-        transform=ax.transAxes,
-    )
 
     ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
     ax.set_axisbelow(True)
@@ -677,12 +686,47 @@ def panel_selectivity_scatter(df, observable, ax=None):
     ax.yaxis.set_ticks_position("none")
     ax.spines["left"].set_visible(False)
 
-    ax.set_xlim(0, 1.0)
-    ax.xaxis.set_major_locator(plt.MultipleLocator(0.2))
-    ax.set_ylim(y_min, y_max)
+  
+    ax.set_ylim(y_min, y_max*1.03)
+    if observable == "tau_double":
+        ax.set_yticks([0, 500, 1000, 1500])
+    elif observable == "tau_R":
+        ax.set_yticks([0, 100, 200])
+    elif observable == "R_tot":
+        ax.set_yticks([0, 0.1, 0.2, 0.3])
+        
 
-    ax.set_xlabel("direction selectivity")
-    ax.set_ylabel(y_labels[observable])
+    if selectivity_metric == "g_dsi_dg":
+        if plot_xlabel:
+            ax.set_xlabel("direction selectivity")
+        ax.set_xlim(0, 1.0)
+        ax.xaxis.set_major_locator(plt.MultipleLocator(0.25))
+    elif selectivity_metric == "image_selectivity_ns":
+        if plot_xlabel:
+            ax.set_xlabel("image selectivity")
+        ax.set_xlim(-0.3, 1.0)
+        ax.xaxis.set_major_locator(plt.MultipleLocator(0.3))
+        y_text = 0.88
+    if plot_ylabel:
+        ax.set_ylabel(y_labels[observable]) 
+    else: 
+        ax.set_ylabel(y_labels_short[observable]) 
+
+    # only give correlation and p value if p_val is significant
+    if p_val < 0.05*bonferroni_correction:
+        if p_val >= 1e-8:
+            p_val_text = r"$\it{p}$ = " + _format_base_ten(p_val)
+        else:
+            p_val_text = r"$\it{p} < 10^{-8}$"
+
+        ax.text(
+            pos_text_x,
+            y_text,
+            r"$\it{r} = %s$" % (f"{r:.2f}") + "; " + p_val_text,
+            ha="right",
+            va="center",
+            transform=ax.transAxes,
+        )
 
     return ax
 
