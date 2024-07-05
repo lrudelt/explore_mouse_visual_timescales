@@ -59,8 +59,8 @@ conda activate mouse_visual_timescales
 
 There are two notebooks (with only minor differences) to analyse stimulated and spontaneous activity.
 
-- [analyse_all_units_blocks_merged](/experiment_analysis/notebooks/analyse_all_units_blocks_merged.ipynb)
-- [analyse_all_units_spontaneous_for_merged](/experiment_analysis/notebooks/analyse_all_units_spontaneous_for_merged.ipynb)
+- [`analyse_all_units_blocks_merged.ipynb`](/experiment_analysis/notebooks/analyse_all_units_blocks_merged.ipynb)
+- [`analyse_all_units_spontaneous_for_merged.ipynb`](/experiment_analysis/notebooks/analyse_all_units_spontaneous_for_merged.ipynb)
 
 In short, they:
 
