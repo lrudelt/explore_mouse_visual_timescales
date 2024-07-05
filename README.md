@@ -34,11 +34,11 @@ our analysis pipeline on [gin.g-node.org](https://gin.g-node.org/pspitzner/mouse
 Loading these files requires only minimal dependencies and should be easy to setup using our `environment.yaml`. All use of these data must comply with the orignal sources' [Terms of Use](https://alleninstitute.org/terms-of-use/).
 
 Instructions on how to download the original data can be found in the [docs](https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html).
-@LR: In the folder `experiment_analysis/data` we provide scripts that download the spike data and related metrics.
+In the folder [`experiment_analysis/download/`](/experiment_analysis/download/) we provide scripts that download the spike data and related metrics.
 
-- `download_csv_files.py` downloads csv files containing information regarding the experimental sessions, probes, channels and sorted unit, as well as other analysis metrics such as stimulus selectivity. This will create a file `brain_observatory_unit_metrics_filtered.csv`, which is required for further analysis regarding stimulus selectivity.
-- `download_session_data.py` downloads the full session data containing spike data for each experimental session of both the `functional_connectivity` and `brain_observatory_1_1` experiments
-- if this does not work well, you can also execute `download_session_data_via_http.py` to download the data directly using http (see [docs](https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html) for more info)
+- [`download_csv_files.py`](/experiment_analysis/download/download_csv_files.py) downloads csv files containing information regarding the experimental sessions, probes, channels and sorted unit, as well as other analysis metrics such as stimulus selectivity. This will create a file `brain_observatory_unit_metrics_filtered.csv`, which is required for further analysis regarding stimulus selectivity.
+- [`download_session_data.py`](/experiment_analysis/download/download_session_data.py) downloads the full session data containing spike data for each experimental session of both the `functional_connectivity` and `brain_observatory_1_1` experiments
+- if this does not work well, you can also execute [`download_session_data_via_http.py`](/experiment_analysis/download/download_session_data_via_http.py) to download the data directly using http (see [docs](https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html) for more info)
 
 @LR: Add info about write_spike_times.py to create the h5 files from the raw spike data.
 
