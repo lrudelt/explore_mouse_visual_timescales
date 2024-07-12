@@ -491,7 +491,7 @@ def panel_hierarchy_score(df, obs, ax=None, plot_option="default"):
     return ax, correlation_stats
 
 
-def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
+def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, plot_ylabel = True, areawise_plot=False, area_name=None, x_area_name=None, bonferroni_correction=None, **kwargs):
     """
     Create a single panel for the sensitivity. Query the dataframe beforehand to the right blocks / stimuli!
 
@@ -511,10 +511,10 @@ def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
         same_points_per_swarm=True,
         seed=44,
         replace=False,
-        # palette={
-        #     "merged_3.0_and_8.0" : "#233954",
-        #     "null" : "#EA5E48",
-        # },
+        palette={
+            "merged_3.0_and_8.0" : "#233954",
+            "null" : "#EA5E48",
+        },
     )
 
     # Update defaults with kwargs, overwriting existing keys
@@ -563,7 +563,7 @@ def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
     # if we use `kwargs['observable']` instead of obs, it would potentially be log-difference, but we want in lin-space because otherwise differences would are hard to interpret.
     pivot_df = df.pivot(index="unit_id", columns=category, values=obs)
     for i, j in combinations(range(0, len(labels)), 2):
-        diff = pivot_df[labels[i]] - pivot_df[labels[j]]
+        diff = pivot_df[labels[j]] - pivot_df[labels[i]]
         p = scipy.stats.wilcoxon(diff).pvalue
 
         # do we want median of pairwise differences
@@ -573,14 +573,35 @@ def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
         # or difference of sample medians
         mi = np.median(pivot_df[labels[i]])
         mj = np.median(pivot_df[labels[j]])
-        diff_median_percent = ((mi - mj) / mi) * 100
+        diff_median_percent = ((mj - mi) / mi) * 100
 
         log.info(f"median [{labels[i]}]: {mi:.3f}, [{labels[j]}]: {mj:.3f}")
         log.info(
             f"{labels[i]} vs {labels[j]} pairwise_diff={diff_percent:.1f}% diff_of_medians={diff_median_percent:.1f}% {p=}"
         )
 
-    ax = fancy_violins(df, **kwargs)
+    if areawise_plot:
+        pos_text_x = 0.5
+        pos_text_y = 1.05
+        if p < 0.05 * bonferroni_correction:
+            if p >= 1e-8:
+                p_text = r"$\it{p}$ = " + _format_base_ten(p)
+            else:
+                p_text = r"$\it{p} < 10^{-8}$"
+
+            ax.text(
+                pos_text_x,
+                pos_text_y,
+                r"$\Delta = %s$" % (f"{diff_median_percent:.1f}") + "% ; " + p_text,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+
+            )
+    if ax is None:
+        ax = fancy_violins(df, **kwargs)
+    else:
+        fancy_violins(df,ax=ax, **kwargs)
 
     if logscale:
         ax.yaxis.set_major_formatter(
@@ -594,11 +615,10 @@ def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
         ax.set_xticklabels(xlabels)
 
     ax.set_xlabel("")
-    ax.set_ylabel(y_labels[obs])
-
-    # grid
-    ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
-    ax.set_axisbelow(True)
+    if plot_ylabel:
+        ax.set_ylabel(y_labels[obs]) 
+    else: 
+        ax.set_ylabel(y_labels_short[obs]) 
 
     # remove axis
     ax.yaxis.set_ticks_position("none")
@@ -607,10 +627,32 @@ def panel_stimulus_violins(df, xlabels=None, ax=None, logscale=False, **kwargs):
     ax.spines["bottom"].set_visible(False)
 
     # obseravble level customization
-    if obs == "R_tot":
-        ax.set_ylim(-0.08, None)
-    elif "tau_" in obs and logscale:
-        ax.set_ylim(-0.5, None)
+    if areawise_plot:
+        if obs == "R_tot":
+            ax.set_ylim(-0.08, 0.4)
+        elif obs == "tau_R" and logscale:
+            ax.set_ylim(-0.5, 3)
+        elif obs == "tau_double" and logscale:
+            ax.set_ylim(-0.5, 4)
+    else: 
+        if obs == "R_tot":
+            ax.set_ylim(-0.08, None)
+        elif "tau_" in obs and logscale:
+            ax.set_ylim(-0.5, None)
+
+    # grid
+    ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+    ax.set_axisbelow(True)
+
+    # area name and N neurons for each row
+    if obs == "tau_double":
+        y_text = 0.88
+        # y_max = 1501
+        # y_min = -(y_max / 100)
+        if areawise_plot:
+            ax.text(x_area_name, 2.5, area_name, weight='bold')#, usetex = True )
+            ax.text(x_area_name, 1.5, r"$n = %d$"%N)#, usetex = True)
+
 
     # text_kwargs = dict(
     #     s=r"$\it{N} = " + str(N) + r"$",

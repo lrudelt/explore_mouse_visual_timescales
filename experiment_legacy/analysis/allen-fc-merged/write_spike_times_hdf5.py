@@ -18,7 +18,6 @@ log.setLevel("DEBUG")
 from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 
 import yaml
-import print_spike_times_for_neuron as pspt
 
 SCRIPT_DIR = dirname(realpath(__file__))
 # SCRIPT_DIR = "./"
