@@ -1,16 +1,8 @@
-# _Code repository:_ Signatures of hierarchical temporal processing in the mouse visual system
+# _Code repository:_ Exploring signatures of hierarchical temporal processing in the mouse visual system
 
 
-This repository contains the analysis pipeline and plotting routines for our preprint
+This repository contains analysis code for the Allen Neuropixels Visual Coding data set. 
 
-[Arxiv]()
-
-```
-@misc{rudelt_signatures_2023,
-  doi = {},
-  url = {},
-}
-```
 
 ## Refactoring Note
 
